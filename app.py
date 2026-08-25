@@ -3,6 +3,7 @@ import pandas as pd
 import re
 from datetime import datetime
 
+# 1. ตั้งค่าหน้าเว็บ
 st.set_page_config(page_title="ระบบติดตามวินัยนักเรียน", page_icon="📊", layout="wide")
 
 st.markdown("""
@@ -15,7 +16,7 @@ st.markdown("""
 
 st.title("📊 ระบบติดตามวินัยนักเรียน (Enterprise Edition)")
 
-# 1. ตั้งค่ารอบการตรวจ
+# 2. เมนูด้านข้างสำหรับตั้งค่าและนำเข้าข้อมูล
 with st.sidebar:
     st.header("📅 1. ตั้งค่ารอบการตรวจ")
     period_name = st.text_input("ชื่อสัปดาห์ (เช่น สัปดาห์ที่ 26 ส.ค. 2569)", "สัปดาห์ที่ 1")
@@ -23,17 +24,15 @@ with st.sidebar:
     
     st.markdown("---")
     st.header("📥 2. นำเข้าข้อมูล")
-    uploaded_files = st.file_uploader("ลากไฟล์ Excel ทุกห้องมาวางที่นี่", type=['xls', 'xlsx'], accept_multiple_files=True)
+    st.info("นำไฟล์ Excel จากระบบดิจิทัลติดตามนักเรียนมาอัปโหลดที่นี่")
+    uploaded_files = st.file_uploader("ลากไฟล์ Excel ทุกห้องมาวางพร้อมกัน", type=['xls', 'xlsx'], accept_multiple_files=True)
 
-# 2. ฟังก์ชันดึงวันที่และจัดเรียงห้อง
+# 3. ฟังก์ชันดึงวันที่และจัดเรียงห้อง
 def extract_info(html_text):
-    # ค้นหาวันที่จากข้อความ "ตรวจเครื่องแต่งกาย : วันที่ DD/MM/YYYY"
     date_match = re.search(r'วันที่\s*(\d{2}/\d{2}/\d{4})', html_text)
-    date_str = date_match.group(1) if date_match else None
-    return date_str
+    return date_match.group(1) if date_match else None
 
 def sort_rooms(room_str):
-    # ฟังก์ชันช่วยแปลง "ม. 4/1" ให้เรียงลำดับได้ถูกต้อง (4-1, 4-2... 6-15)
     try:
         nums = re.findall(r'\d+', str(room_str))
         if len(nums) >= 2:
@@ -42,24 +41,23 @@ def sort_rooms(room_str):
         pass
     return 9999
 
-# 3. ประมวลผลเมื่ออัปโหลดไฟล์
+# 4. ประมวลผลและสร้างตาราง
 if uploaded_files:
     if len(date_range) < 2:
-        st.warning("⚠️ เจ้านายอย่าลืมเลือกช่วงวันที่ในแถบด้านข้างให้ครบ 2 วัน (เริ่มต้น-สิ้นสุด) นะคะ")
+        st.warning("⚠️ กรุณาเลือกช่วงวันที่ในแถบด้านข้างให้ครบ 2 วัน (วันเริ่มต้น - วันสิ้นสุด)")
     else:
         start_date, end_date = date_range[0], date_range[1]
         all_students = []
         
         for file in uploaded_files:
             try:
-                # อ่านไฟล์เพื่อหาวันที่ตรวจ
                 content = file.getvalue().decode('utf-8', errors='ignore')
                 file_date_str = extract_info(content)
                 
                 if file_date_str:
                     file_date = datetime.strptime(file_date_str, "%d/%m/%Y").date()
                     if not (start_date <= file_date <= end_date):
-                        st.error(f"⚠️ ไฟล์ {file.name} มีวันที่ตรวจ ({file_date_str}) ไม่อยู่ในช่วงที่ตั้งไว้ เจมี่ขอข้ามไฟล์นี้นะคะ")
+                        st.error(f"⚠️ ไฟล์ {file.name} มีวันที่ตรวจ ({file_date_str}) ไม่อยู่ในช่วงที่ตั้งไว้ ระบบจะทำการข้ามไฟล์นี้")
                         continue
                         
                 dfs = pd.read_html(content)
@@ -93,24 +91,20 @@ if uploaded_files:
                                     period_name: status
                                 })
             except Exception as e:
-                st.error(f"อ่านไฟล์ {file.name} ไม่ได้ค่ะ: {e}")
+                st.error(f"เกิดข้อผิดพลาดในการอ่านไฟล์ {file.name}: {e}")
 
         if all_students:
-            # นำข้อมูลเข้าตารางและจัดเรียงตาม ม. และ เลขที่
             final_df = pd.DataFrame(all_students)
             final_df['room_sort'] = final_df['ห้องเรียน'].apply(sort_rooms)
             final_df = final_df.sort_values(by=['room_sort', 'ลำดับ']).drop(columns=['room_sort'])
             
-            # เพิ่มคอลัมน์การพัฒนา
             def eval_trend(stat):
                 if "ผ่าน" == stat: return "🌟 ดีเยี่ยม"
                 if "ไม่ผ่าน" in stat: return "🔴 ต้องปรับปรุง"
                 return "🟢 ทรงตัว"
             final_df["การพัฒนา (สรุปผล)"] = final_df[period_name].apply(eval_trend)
 
-            st.success("✨ เจมี่จัดการเรียงข้อมูลทั้งระดับชั้นให้เรียบร้อยแล้วค่ะ!")
-            
-            # ตาราง Interactive (กรองได้ เรียงได้)
+            st.success("✨ ระบบจัดการเรียงข้อมูลและสรุปผลเรียบร้อยแล้ว")
             st.dataframe(final_df, use_container_width=True, hide_index=True)
 else:
-    st.info("👈 เจมี่สแตนด์บายรอเจ้านายตั้งค่าวันที่ และอัปโหลดไฟล์อยู่ที่เมนูด้านซ้ายมือนะคะ...")
+    st.info("👈 กรุณาตั้งค่ารอบการตรวจ และอัปโหลดไฟล์ Excel ที่เมนูด้านซ้ายมือ")
