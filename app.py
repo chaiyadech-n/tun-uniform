@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 from datetime import datetime
+from io import StringIO
 
 # 1. ตั้งค่าหน้าเว็บ
 st.set_page_config(page_title="ระบบติดตามวินัยนักเรียน", page_icon="📊", layout="wide")
@@ -62,16 +63,12 @@ if uploaded_files:
                 skip_this_file = False
                 
                 if file_date_str:
-                    # อ่านวันที่จาก Excel (พ.ศ.)
                     file_date = datetime.strptime(file_date_str, "%d/%m/%Y").date()
-                    
-                    # แปลง พ.ศ. เป็น ค.ศ. ชั่วคราวเพื่อเอาไปเช็คว่าอยู่ในช่วง Date Range ไหม
                     check_date = file_date.replace(year=file_date.year - 543) if file_date.year > 2400 else file_date
                     
                     if not (start_date <= check_date <= end_date):
                         st.warning(f"⚠️ ตรวจพบไฟล์ '{file.name}' มีวันที่ตรวจคือ {file_date_str} ซึ่งไม่อยู่ในช่วงเวลาที่กำหนด")
                         
-                        # ระบบเด้งถามให้ผู้ใช้ตัดสินใจ
                         user_choice = st.radio(
                             f"ต้องการดำเนินการอย่างไรกับไฟล์ {file.name}?",
                             ["❌ ยกเลิก (ไม่นำเข้าไฟล์นี้)", "✅ ดำเนินการต่อ (สร้างคอลัมน์ใหม่ตามวันที่ในไฟล์)"],
@@ -82,13 +79,15 @@ if uploaded_files:
                         if user_choice == "❌ ยกเลิก (ไม่นำเข้าไฟล์นี้)":
                             skip_this_file = True
                         else:
-                            # สร้างชื่อคอลัมน์ใหม่ตามวันที่ใน Excel (คงค่า พ.ศ. ไว้ให้สวยงาม)
                             col_name_for_this_file = f"สัปดาห์ที่ {file_date.strftime('%d/%m/')}{file_date.year}"
                             
                 if skip_this_file:
                     continue
-                        
-                dfs = pd.read_html(content)
+                
+                # ใช้ StringIO แปลงข้อความ HTML ให้ถูกต้อง ป้องกัน Error No such file
+                html_io = StringIO(content)
+                dfs = pd.read_html(html_io)
+                
                 for df in dfs:
                     if 'ชื่อนักเรียน' in df.to_string():
                         df.columns = [col[-1] for col in df.columns]
@@ -124,14 +123,12 @@ if uploaded_files:
         if all_students:
             final_df = pd.DataFrame(all_students)
             
-            # รวมข้อมูลนักเรียนคนเดียวกันกรณีอัปโหลดหลายสัปดาห์พร้อมกัน
             groupby_cols = ["ลำดับ", "รหัสนักเรียน", "ชื่อนักเรียน", "ห้องเรียน"]
             final_df = final_df.groupby(groupby_cols, as_index=False).first()
             
             final_df['room_sort'] = final_df['ห้องเรียน'].apply(sort_rooms)
             final_df = final_df.sort_values(by=['room_sort', 'ลำดับ']).drop(columns=['room_sort'])
             
-            # ประเมินการพัฒนา (อ่านจากสัปดาห์ล่าสุดที่มีข้อมูล)
             week_cols = [c for c in final_df.columns if c not in groupby_cols and c != "การพัฒนา (สรุปผล)"]
             def eval_trend(row):
                 statuses = [str(row[c]) for c in week_cols if pd.notna(row[c])]
