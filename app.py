@@ -20,13 +20,10 @@ st.title("📊 ระบบติดตามวินัยนักเรี�
 with st.sidebar:
     st.header("📅 1. ตั้งค่ารอบการตรวจ")
     
-    # ให้เลือกวันที่จากปฏิทินเพื่อสร้างชื่อเริ่มต้นอัตโนมัติ
     selected_date = st.date_input("เลือกวันที่เพื่อสร้างชื่อสัปดาห์")
     default_name = f"สัปดาห์ที่ {selected_date.strftime('%d/%m/')}{selected_date.year + 543}"
     
-    # นำชื่อที่ระบบสร้างให้ มาใส่ในกล่องข้อความ เพื่อให้ผู้ใช้สามารถพิมพ์แก้ไขได้อิสระ
     period_name = st.text_input("ชื่อสัปดาห์ (สามารถคลิกเพื่อพิมพ์แก้ไขได้)", value=default_name)
-    
     date_range = st.date_input("เลือกช่วงวันที่ตรวจ", [])
     
     st.markdown("---")
@@ -61,11 +58,35 @@ if uploaded_files:
                 content = file.getvalue().decode('utf-8', errors='ignore')
                 file_date_str = extract_info(content)
                 
+                col_name_for_this_file = period_name
+                skip_this_file = False
+                
                 if file_date_str:
+                    # อ่านวันที่จาก Excel (พ.ศ.)
                     file_date = datetime.strptime(file_date_str, "%d/%m/%Y").date()
-                    if not (start_date <= file_date <= end_date):
-                        st.error(f"⚠️ ไฟล์ {file.name} มีวันที่ตรวจ ({file_date_str}) ไม่อยู่ในช่วงที่ตั้งไว้ ระบบจะทำการข้ามไฟล์นี้")
-                        continue
+                    
+                    # แปลง พ.ศ. เป็น ค.ศ. ชั่วคราวเพื่อเอาไปเช็คว่าอยู่ในช่วง Date Range ไหม
+                    check_date = file_date.replace(year=file_date.year - 543) if file_date.year > 2400 else file_date
+                    
+                    if not (start_date <= check_date <= end_date):
+                        st.warning(f"⚠️ ตรวจพบไฟล์ '{file.name}' มีวันที่ตรวจคือ {file_date_str} ซึ่งไม่อยู่ในช่วงเวลาที่กำหนด")
+                        
+                        # ระบบเด้งถามให้ผู้ใช้ตัดสินใจ
+                        user_choice = st.radio(
+                            f"ต้องการดำเนินการอย่างไรกับไฟล์ {file.name}?",
+                            ["❌ ยกเลิก (ไม่นำเข้าไฟล์นี้)", "✅ ดำเนินการต่อ (สร้างคอลัมน์ใหม่ตามวันที่ในไฟล์)"],
+                            key=f"choice_{file.name}",
+                            horizontal=True
+                        )
+                        
+                        if user_choice == "❌ ยกเลิก (ไม่นำเข้าไฟล์นี้)":
+                            skip_this_file = True
+                        else:
+                            # สร้างชื่อคอลัมน์ใหม่ตามวันที่ใน Excel (คงค่า พ.ศ. ไว้ให้สวยงาม)
+                            col_name_for_this_file = f"สัปดาห์ที่ {file_date.strftime('%d/%m/')}{file_date.year}"
+                            
+                if skip_this_file:
+                    continue
                         
                 dfs = pd.read_html(content)
                 for df in dfs:
@@ -95,21 +116,32 @@ if uploaded_files:
                                     "รหัสนักเรียน": str(row.get('รหัสนักเรียน', '')).strip(),
                                     "ชื่อนักเรียน": str(row['ชื่อนักเรียน']).strip(),
                                     "ห้องเรียน": room,
-                                    period_name: status
+                                    col_name_for_this_file: status
                                 })
             except Exception as e:
                 st.error(f"เกิดข้อผิดพลาดในการอ่านไฟล์ {file.name}: {e}")
 
         if all_students:
             final_df = pd.DataFrame(all_students)
+            
+            # รวมข้อมูลนักเรียนคนเดียวกันกรณีอัปโหลดหลายสัปดาห์พร้อมกัน
+            groupby_cols = ["ลำดับ", "รหัสนักเรียน", "ชื่อนักเรียน", "ห้องเรียน"]
+            final_df = final_df.groupby(groupby_cols, as_index=False).first()
+            
             final_df['room_sort'] = final_df['ห้องเรียน'].apply(sort_rooms)
             final_df = final_df.sort_values(by=['room_sort', 'ลำดับ']).drop(columns=['room_sort'])
             
-            def eval_trend(stat):
-                if "ผ่าน" == stat: return "🌟 ดีเยี่ยม"
-                if "ไม่ผ่าน" in stat: return "🔴 ต้องปรับปรุง"
+            # ประเมินการพัฒนา (อ่านจากสัปดาห์ล่าสุดที่มีข้อมูล)
+            week_cols = [c for c in final_df.columns if c not in groupby_cols and c != "การพัฒนา (สรุปผล)"]
+            def eval_trend(row):
+                statuses = [str(row[c]) for c in week_cols if pd.notna(row[c])]
+                if not statuses: return "🟢 ทรงตัว"
+                latest_stat = statuses[-1] 
+                if "ไม่ผ่าน" in latest_stat: return "🔴 ต้องปรับปรุง"
+                if all("ผ่าน" == s for s in statuses if s != "ไม่ได้ตรวจ"): return "🌟 ดีเยี่ยม"
                 return "🟢 ทรงตัว"
-            final_df["การพัฒนา (สรุปผล)"] = final_df[period_name].apply(eval_trend)
+                
+            final_df["การพัฒนา (สรุปผล)"] = final_df.apply(eval_trend, axis=1)
 
             st.success("✨ ระบบจัดการเรียงข้อมูลและสรุปผลเรียบร้อยแล้ว")
             st.dataframe(final_df, use_container_width=True, hide_index=True)
