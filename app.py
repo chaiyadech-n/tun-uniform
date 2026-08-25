@@ -8,7 +8,7 @@ st.set_page_config(page_title="ระบบติดตามวินัยน�
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600&display=swap');
-    html, body, [class*="css"] { font-family: 'Sarabun', sans-serif; color: #333333 !important; }
+    html, body, [class*="css"] { font-family: 'Sarabun', sans-serif; }
     .stApp { background-color: #FAFAFA; }
     </style>
 """, unsafe_allow_html=True)
