@@ -25,15 +25,21 @@ with st.sidebar:
     
     weeks_config = []
     for i in range(num_weeks):
-        st.markdown(f"**สัปดาห์ที่ {i+1}**")
-        col1, col2 = st.columns([1, 1.5])
-        with col1:
-            week_name = st.text_input(f"ชื่อ", value=f"สัปดาห์ที่ {i+1}", key=f"name_{i}")
-        with col2:
-            date_rng = st.date_input(f"ช่วงวันที่", [], key=f"rng_{i}")
+        st.markdown(f"**📌 สัปดาห์ที่ {i+1}**")
+        
+        # คืนชีพปฏิทินจิ้มเลือกวันที่ เพื่อสร้างชื่ออัตโนมัติ
+        sel_date = st.date_input(f"1. จิ้มเลือกวันที่ตรวจ", key=f"sel_date_{i}")
+        default_name = f"สัปดาห์ที่ {sel_date.strftime('%d/%m/')}{sel_date.year + 543}"
+        
+        # นำชื่อมาใส่กล่อง เผื่อเจ้านายอยากพิมพ์แก้ไข
+        week_name = st.text_input(f"2. ชื่อคอลัมน์ (แก้ไขได้)", value=default_name, key=f"name_{i}")
+        
+        # เลือกช่วงวันที่
+        date_rng = st.date_input(f"3. เลือกช่วงวันที่ครอบคลุม", [], key=f"rng_{i}")
+        
         weeks_config.append({'name': week_name, 'range': date_rng})
+        st.markdown("---")
     
-    st.markdown("---")
     st.header("📥 2. นำเข้าข้อมูล")
     st.info("นำไฟล์ Excel จากระบบดิจิทัลติดตามนักเรียนมาอัปโหลดที่นี่")
     uploaded_files = st.file_uploader("ลากไฟล์ Excel ทุกห้องมาวางพร้อมกัน", type=['xls', 'xlsx'], accept_multiple_files=True)
@@ -139,7 +145,6 @@ if uploaded_files:
             final_df = pd.DataFrame(all_students)
             
             groupby_cols = ["ลำดับ", "รหัสนักเรียน", "ชื่อนักเรียน", "ห้องเรียน"]
-            # เปลี่ยนจาก .first() เป็น .last() เพื่อให้ดึงข้อมูลจากไฟล์ล่าสุดเสมอ
             final_df = final_df.groupby(groupby_cols, as_index=False).last()
             
             final_df['room_sort'] = final_df['ห้องเรียน'].apply(sort_rooms)
