@@ -21,11 +21,17 @@ st.title("📊 ระบบติดตามวินัยนักเรี�
 with st.sidebar:
     st.header("📅 1. ตั้งค่ารอบการตรวจ")
     
-    selected_date = st.date_input("เลือกวันที่เพื่อสร้างชื่อสัปดาห์")
-    default_name = f"สัปดาห์ที่ {selected_date.strftime('%d/%m/')}{selected_date.year + 543}"
+    num_weeks = st.number_input("จำนวนสัปดาห์ที่ต้องการตั้งค่า", min_value=1, max_value=10, value=1)
     
-    period_name = st.text_input("ชื่อสัปดาห์ (สามารถคลิกเพื่อพิมพ์แก้ไขได้)", value=default_name)
-    date_range = st.date_input("เลือกช่วงวันที่ตรวจ", [])
+    weeks_config = []
+    for i in range(num_weeks):
+        st.markdown(f"**สัปดาห์ที่ {i+1}**")
+        col1, col2 = st.columns([1, 1.5])
+        with col1:
+            week_name = st.text_input(f"ชื่อ", value=f"สัปดาห์ที่ {i+1}", key=f"name_{i}")
+        with col2:
+            date_rng = st.date_input(f"ช่วงวันที่", [], key=f"rng_{i}")
+        weeks_config.append({'name': week_name, 'range': date_rng})
     
     st.markdown("---")
     st.header("📥 2. นำเข้าข้อมูล")
@@ -48,10 +54,11 @@ def sort_rooms(room_str):
 
 # 4. ประมวลผลและสร้างตาราง
 if uploaded_files:
-    if len(date_range) < 2:
-        st.warning("⚠️ กรุณาเลือกช่วงวันที่ในแถบด้านข้างให้ครบ 2 วัน (วันเริ่มต้น - วันสิ้นสุด)")
+    all_ranges_valid = all(len(w['range']) == 2 for w in weeks_config)
+    
+    if not all_ranges_valid:
+        st.warning("⚠️ กรุณาเลือกช่วงวันที่ให้ครบ 2 วัน (วันเริ่มต้น - วันสิ้นสุด) ในทุกๆ สัปดาห์ที่ตั้งค่าไว้นะคะ")
     else:
-        start_date, end_date = date_range[0], date_range[1]
         all_students = []
         
         for file in uploaded_files:
@@ -59,15 +66,21 @@ if uploaded_files:
                 content = file.getvalue().decode('utf-8', errors='ignore')
                 file_date_str = extract_info(content)
                 
-                col_name_for_this_file = period_name
+                matched_week_name = None
                 skip_this_file = False
                 
                 if file_date_str:
                     file_date = datetime.strptime(file_date_str, "%d/%m/%Y").date()
                     check_date = file_date.replace(year=file_date.year - 543) if file_date.year > 2400 else file_date
                     
-                    if not (start_date <= check_date <= end_date):
-                        st.warning(f"⚠️ ตรวจพบไฟล์ '{file.name}' มีวันที่ตรวจคือ {file_date_str} ซึ่งไม่อยู่ในช่วงเวลาที่กำหนด")
+                    for w in weeks_config:
+                        start_date, end_date = w['range'][0], w['range'][1]
+                        if start_date <= check_date <= end_date:
+                            matched_week_name = w['name']
+                            break
+                    
+                    if not matched_week_name:
+                        st.warning(f"⚠️ ตรวจพบไฟล์ '{file.name}' (วันที่ {file_date_str}) ไม่อยู่ในช่วงเวลาที่กำหนดไว้เลยค่ะ")
                         
                         user_choice = st.radio(
                             f"ต้องการดำเนินการอย่างไรกับไฟล์ {file.name}?",
@@ -79,12 +92,14 @@ if uploaded_files:
                         if user_choice == "❌ ยกเลิก (ไม่นำเข้าไฟล์นี้)":
                             skip_this_file = True
                         else:
-                            col_name_for_this_file = f"สัปดาห์ที่ {file_date.strftime('%d/%m/')}{file_date.year}"
+                            matched_week_name = f"สัปดาห์ที่ {file_date.strftime('%d/%m/')}{file_date.year}"
                             
                 if skip_this_file:
                     continue
                 
-                # ใช้ StringIO แปลงข้อความ HTML ให้ถูกต้อง ป้องกัน Error No such file
+                if not matched_week_name:
+                    matched_week_name = weeks_config[0]['name']
+                
                 html_io = StringIO(content)
                 dfs = pd.read_html(html_io)
                 
@@ -115,7 +130,7 @@ if uploaded_files:
                                     "รหัสนักเรียน": str(row.get('รหัสนักเรียน', '')).strip(),
                                     "ชื่อนักเรียน": str(row['ชื่อนักเรียน']).strip(),
                                     "ห้องเรียน": room,
-                                    col_name_for_this_file: status
+                                    matched_week_name: status
                                 })
             except Exception as e:
                 st.error(f"เกิดข้อผิดพลาดในการอ่านไฟล์ {file.name}: {e}")
@@ -124,7 +139,8 @@ if uploaded_files:
             final_df = pd.DataFrame(all_students)
             
             groupby_cols = ["ลำดับ", "รหัสนักเรียน", "ชื่อนักเรียน", "ห้องเรียน"]
-            final_df = final_df.groupby(groupby_cols, as_index=False).first()
+            # เปลี่ยนจาก .first() เป็น .last() เพื่อให้ดึงข้อมูลจากไฟล์ล่าสุดเสมอ
+            final_df = final_df.groupby(groupby_cols, as_index=False).last()
             
             final_df['room_sort'] = final_df['ห้องเรียน'].apply(sort_rooms)
             final_df = final_df.sort_values(by=['room_sort', 'ลำดับ']).drop(columns=['room_sort'])
