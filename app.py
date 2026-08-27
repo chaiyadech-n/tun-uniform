@@ -654,7 +654,7 @@ with tab2:
                     with st.expander("👉 ดูรายชื่อ"): render_student_table(df_pass)
                 with sc2:
                     st.metric("🔴 ไม่ผ่านระเบียบ", f"{len(df_fail)} คน")
-                    with st.expander("👉 duodenum"): render_student_table(df_fail) # ปรับแสดงผลปกติ
+                    with st.expander("👉 ดูรายชื่อ"): render_student_table(df_fail) # ปรับแสดงผลปกติ
                 with sc3:
                     st.metric("⚫ ลาออก", f"{len(df_resigned)} คน")
                     with st.expander("👉 ดูรายชื่อ"): render_student_table(df_resigned)
