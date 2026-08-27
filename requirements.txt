@@ -2,3 +2,5 @@ streamlit
 pandas
 lxml
 st-gsheets-connection
+gspread
+google-auth
