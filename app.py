@@ -3,10 +3,8 @@ import pandas as pd
 import re
 from datetime import datetime
 from io import StringIO
-from streamlit_gsheets import GSheetsConnection
-
-# 📌 ลิงก์ Google Sheets ของเจ้านาย (ใส่ไว้ตรงนี้ที่เดียวจบ ชัวร์ที่สุดค่ะ!)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1GfNCVEsKhSVq6QAXfnkMWHh_lMxsK5KFAeoUcVJhVPY/edit"
+import gspread
+from google.oauth2.service_account import Credentials
 
 # 1. ตั้งค่าหน้าเว็บ
 st.set_page_config(page_title="ระบบติดตามวินัยนักเรียน", page_icon="📊", layout="wide")
@@ -66,21 +64,42 @@ def sort_rooms(room_str):
         pass
     return 9999
 
+# --- ฟังก์ชันเชื่อมต่อ Google Sheets แบบตรงๆ (ชัวร์ 100%) ---
+def init_gsheets():
+    try:
+        # ดึงกุญแจจาก Secrets
+        secret_dict = dict(st.secrets["connections"]["gsheets"])
+        # แปลงกุญแจเป็นบัตรผ่าน
+        creds = Credentials.from_service_account_info(
+            secret_dict, 
+            scopes=["https://www.googleapis.com/auth/spreadsheets"]
+        )
+        # เสียบบัตรเข้าระบบ
+        client = gspread.authorize(creds)
+        # เจาะจงไปที่ไฟล์นี้เป๊ะๆ!
+        sheet = client.open_by_key("1GfNCVEsKhSVq6QAXfnkMWHh_lMxsK5KFAeoUcVJhVPY")
+        return sheet.worksheet("Database")
+    except Exception as e:
+        st.error(f"⚠️ เกิดข้อผิดพลาดในการเชื่อมต่อ (init): {e}")
+        return None
+
 # 4. โหลดข้อมูลเดิมจาก Google Sheets
-conn = st.connection("gsheets", type=GSheetsConnection)
-try:
-    # 📌 บังคับโหลดใหม่สดๆ ห้ามจำแคช (ttl=0)
-    existing_df = conn.read(spreadsheet=SHEET_URL, worksheet="Database", ttl=0)
-    if not existing_df.empty and 'รหัสนักเรียน' in existing_df.columns:
-        existing_df = existing_df.dropna(subset=['รหัสนักเรียน'])
-        existing_df['รหัสนักเรียน'] = existing_df['รหัสนักเรียน'].astype(str).str.replace(r'\.0$', '', regex=True)
-        existing_df['ลำดับ'] = existing_df['ลำดับ'].astype(int, errors='ignore')
-    else:
-        existing_df = pd.DataFrame()
-except Exception as e:
-    # 📌 ถ้าโหลดไม่ขึ้น เจมี่ตั้งค่าให้มันข้ามไปเลยค่ะ เจ้านายจะได้ทำต่อได้!
-    st.error(f"⚠️ โหลดข้อมูลเดิมไม่สำเร็จ แต่ไม่ต้องห่วงค่ะ เจ้านายยังสามารถกดเซฟข้อมูลใหม่ทับลงไปได้เลย! (Error: {e})")
-    existing_df = pd.DataFrame()
+worksheet = init_gsheets()
+existing_df = pd.DataFrame()
+
+if worksheet is not None:
+    try:
+        existing_data = worksheet.get_all_records()
+        if existing_data:
+            existing_df = pd.DataFrame(existing_data)
+            if 'รหัสนักเรียน' in existing_df.columns:
+                existing_df = existing_df.dropna(subset=['รหัสนักเรียน'])
+                existing_df['รหัสนักเรียน'] = existing_df['รหัสนักเรียน'].astype(str).str.replace(r'\.0$', '', regex=True)
+                existing_df['ลำดับ'] = existing_df['ลำดับ'].astype(int, errors='ignore')
+            else:
+                existing_df = pd.DataFrame()
+    except Exception as e:
+        st.error(f"⚠️ ตรวจพบปัญหาการโหลดข้อมูลเดิม: {e}")
 
 # 5. ประมวลผลและสร้างตาราง
 final_df_to_save = None
@@ -218,15 +237,17 @@ if uploaded_files:
             st.markdown("---")
             if st.button("💾 บันทึกข้อมูลทั้งหมดลง Google Sheets", type="primary", use_container_width=True):
                 with st.spinner("⏳ เจมี่กำลังวิ่งเอาข้อมูลไปเก็บที่ Google Sheets ให้เจ้านายค่ะ..."):
-                    try:
-                        # 📌 เซฟข้อมูลแบบชัวร์ๆ ทะลวงเข้า Google Sheets โดยตรง!
-                        conn.update(spreadsheet=SHEET_URL, worksheet="Database", data=final_df_to_save)
-                        st.success("🎉 เซฟลงฐานข้อมูลสำเร็จเรียบร้อยแล้วค่ะเจ้านาย! ลูกโป่งมาแล้วววว!")
-                        st.balloons()
-                        # 📌 สั่งล้างแคชหน้าเว็บทิ้ง เผื่อเจ้านายจะลากไฟล์ชุดต่อไปมาทำต่อค่ะ
-                        st.cache_data.clear() 
-                    except Exception as e:
-                        st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก: {e}")
+                    if worksheet is not None:
+                        try:
+                            # 📌 ล้างข้อมูลเก่าแล้วเขียนทับใหม่ด้วย gspread เพียวๆ
+                            worksheet.clear()
+                            worksheet.update([final_df_to_save.columns.values.tolist()] + final_df_to_save.values.tolist())
+                            st.success("🎉 เซฟลงฐานข้อมูลสำเร็จเรียบร้อยแล้วค่ะเจ้านาย! (สามารถปิดหน้าต่างหรือกดกากบาทลบไฟล์ที่อัปโหลดออกได้เลยค่ะ)")
+                            st.balloons()
+                        except Exception as e:
+                            st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก: {e}")
+                    else:
+                        st.error("❌ ไม่สามารถบันทึกได้ เนื่องจากเชื่อมต่อ Google Sheets ไม่สำเร็จค่ะ")
 
 elif not existing_df.empty:
     st.info("📊 นี่คือข้อมูลล่าสุดจากฐานข้อมูล Google Sheets ของเราค่ะ")
