@@ -2,9 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 from datetime import datetime
-from io import StringIO
-import gspread
-from google.oauth2.service_account import Credentials
+from io import StringIO, BytesIO
 
 # 1. ตั้งค่าหน้าเว็บ
 st.set_page_config(page_title="ระบบติดตามวินัยนักเรียน", page_icon="📊", layout="wide")
@@ -17,11 +15,17 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 ระบบติดตามวินัยนักเรียน (Enterprise Edition)")
+st.title("📊 ระบบติดตามวินัยนักเรียน (Enterprise Edition - Master Excel)")
 
-# 2. เมนูด้านข้าง
+# 2. เมนูด้านข้าง (อัปโหลดฐานข้อมูลเดิม + ตั้งค่าวันที่)
 with st.sidebar:
-    st.header("📅 1. ตั้งค่ารอบการตรวจ")
+    st.header("📂 1. อัปโหลดฐานข้อมูลแม่ (Master)")
+    st.info("💡 หากเคยประมวลผลแล้ว ให้อัปโหลดไฟล์ Excel ฐานข้อมูลล่าสุดของเจ้านายที่นี่ เพื่อสะสมคอลัมน์ต่อไปเรื่อยๆ ค่ะ")
+    master_file = st.file_uploader("อัปโหลดไฟล์ Master Database", type=['xlsx'])
+    
+    st.markdown("---")
+    
+    st.header("📅 2. ตั้งค่ารอบการตรวจใหม่")
     num_weeks = st.number_input("จำนวนสัปดาห์ที่ต้องการตั้งค่า", min_value=1, max_value=10, value=1)
     
     def update_col_name(idx):
@@ -45,12 +49,13 @@ with st.sidebar:
         
         weeks_config.append({'name': week_name, 'range': date_rng})
         st.markdown("---")
-    
-    st.header("📥 2. นำเข้าข้อมูล")
-    st.info("นำไฟล์ Excel จากระบบมาอัปโหลดที่นี่")
-    uploaded_files = st.file_uploader("ลากไฟล์ Excel ทุกห้องมาวางพร้อมกัน", type=['xls', 'xlsx'], accept_multiple_files=True)
 
-# 3. ฟังก์ชันดึงวันที่และจัดเรียงห้อง
+# พื้นที่หลัก (อัปโหลดไฟล์ใหม่)
+st.header("📥 3. นำเข้าข้อมูลการตรวจรอบใหม่")
+st.info("นำไฟล์ Excel จากระบบของโรงเรียนมาอัปโหลดที่นี่ (ลากวางได้หลายไฟล์)")
+uploaded_files = st.file_uploader("ลากไฟล์ Excel 45 ไฟล์ มาวางพร้อมกันได้เลยค่ะ", type=['xls', 'xlsx'], accept_multiple_files=True)
+
+# ฟังก์ชันดึงวันที่และจัดเรียงห้อง
 def extract_info(html_text):
     date_match = re.search(r'วันที่\s*(\d{2}/\d{2}/\d{4})', html_text)
     return date_match.group(1) if date_match else None
@@ -64,60 +69,26 @@ def sort_rooms(room_str):
         pass
     return 9999
 
-# --- ฟังก์ชันเชื่อมต่อ Google Sheets แบบบังคับจัดเรียงกุญแจใหม่! ---
-@st.cache_resource(ttl=600)
-def init_gsheets():
-    try:
-        sec = st.secrets["connections"]["gsheets"]
-        # 📌 จับกุญแจมาเรียงใหม่ทีละบรรทัด และบังคับแปลง \n ให้ถูกต้อง เพื่อป้องกันระบบอ่านกุญแจพลาดค่ะ!
-        creds_dict = {
-            "type": sec["type"],
-            "project_id": sec["project_id"],
-            "private_key_id": sec["private_key_id"],
-            "private_key": sec["private_key"].replace('\\n', '\n'), 
-            "client_email": sec["client_email"],
-            "client_id": sec["client_id"],
-            "auth_uri": sec["auth_uri"],
-            "token_uri": sec["token_uri"],
-            "auth_provider_x509_cert_url": sec["auth_provider_x509_cert_url"],
-            "client_x509_cert_url": sec["client_x509_cert_url"]
-        }
-        creds = Credentials.from_service_account_info(
-            creds_dict, 
-            scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        )
-        client = gspread.authorize(creds)
-        sheet = client.open_by_key("1GfNCVEsKhSVq6QAXfnkMWHh_lMxsK5KFAeoUcVJhVPY")
-        return sheet.worksheet("Database")
-    except Exception as e:
-        st.error(f"⚠️ เกิดข้อผิดพลาดในการตรวจสอบกุญแจลับ (Secrets): {e}")
-        return None
-
-# 4. โหลดข้อมูลเดิมจาก Google Sheets
-worksheet = init_gsheets()
+# โหลด Master Database เดิม (ถ้ามี)
 existing_df = pd.DataFrame()
-
-if worksheet is not None:
+if master_file:
     try:
-        existing_data = worksheet.get_all_records()
-        if existing_data:
-            existing_df = pd.DataFrame(existing_data)
-            if 'รหัสนักเรียน' in existing_df.columns:
-                existing_df = existing_df.dropna(subset=['รหัสนักเรียน'])
-                existing_df['รหัสนักเรียน'] = existing_df['รหัสนักเรียน'].astype(str).str.replace(r'\.0$', '', regex=True)
-                existing_df['ลำดับ'] = existing_df['ลำดับ'].astype(int, errors='ignore')
-            else:
-                existing_df = pd.DataFrame()
+        existing_df = pd.read_excel(master_file, sheet_name='Database')
+        if 'รหัสนักเรียน' in existing_df.columns:
+            existing_df['รหัสนักเรียน'] = existing_df['รหัสนักเรียน'].astype(str).str.replace(r'\.0$', '', regex=True)
+            existing_df['ลำดับ'] = existing_df['ลำดับ'].astype(int, errors='ignore')
+            # ตัดคอลัมน์สรุปผลเก่าทิ้ง เพื่อคำนวณใหม่จากข้อมูลทั้งหมด
+            if "การพัฒนา (สรุปผล)" in existing_df.columns:
+                existing_df = existing_df.drop(columns=["การพัฒนา (สรุปผล)"])
+            st.sidebar.success(f"✅ โหลดฐานข้อมูลแม่สำเร็จ! (พบนักเรียน {len(existing_df)} คน)")
     except Exception as e:
-        st.error(f"⚠️ ตรวจพบปัญหาการโหลดข้อมูลเดิม: {e}")
+        st.sidebar.error(f"⚠️ โหลดไฟล์ฐานข้อมูลแม่ไม่สำเร็จ: {e}")
 
-# 5. ประมวลผลและสร้างตาราง
-final_df_to_save = None
-
+# ประมวลผลและสร้างตาราง
 if uploaded_files:
     all_ranges_valid = all(len(w['range']) == 2 for w in weeks_config)
     if not all_ranges_valid:
-        st.warning("⚠️ กรุณาเลือกช่วงวันที่ให้ครบ 2 วัน (วันเริ่มต้น - วันสิ้นสุด) ในทุกๆ สัปดาห์ที่ตั้งค่าไว้นะคะ")
+        st.warning("⚠️ กรุณาเลือกช่วงวันที่ให้ครบ 2 วัน (วันเริ่มต้น - วันสิ้นสุด) ในแผงด้านซ้ายนะคะ")
     else:
         all_students = []
         for file in uploaded_files:
@@ -138,7 +109,7 @@ if uploaded_files:
                             break
                     
                     if not matched_week_name:
-                        st.warning(f"⚠️ ตรวจพบไฟล์ '{file.name}' (วันที่ {file_date_str}) ไม่อยู่ในช่วงเวลาที่กำหนดไว้เลยค่ะ")
+                        st.warning(f"⚠️ ตรวจพบไฟล์ '{file.name}' (วันที่ {file_date_str}) ไม่อยู่ในช่วงเวลาที่กำหนดไว้ค่ะ")
                         user_choice = st.radio(
                             f"ต้องการดำเนินการอย่างไรกับไฟล์ {file.name}?",
                             ["❌ ยกเลิก (ไม่นำเข้าไฟล์นี้)", "✅ ดำเนินการต่อ (สร้างคอลัมน์ใหม่ตามวันที่ในไฟล์)"],
@@ -194,25 +165,30 @@ if uploaded_files:
             groupby_cols = ["ลำดับ", "รหัสนักเรียน", "ชื่อนักเรียน", "ห้องเรียน"]
             new_df = new_df.groupby(groupby_cols, as_index=False).last()
             
+            # รวมคอลัมน์ของใหม่เข้ากับ Master Database เดิม (ถ้ามี)
             if not existing_df.empty:
                 existing_df_idx = existing_df.set_index("รหัสนักเรียน")
                 new_df_idx = new_df.set_index("รหัสนักเรียน")
+                
+                # Combine first ช่วยรวมคอลัมน์ที่เพิ่มมาใหม่เข้าด้วยกัน โดยยึดข้อมูลใหม่เป็นหลักถ้าซ้ำ
                 merged_idx = new_df_idx.combine_first(existing_df_idx)
                 final_df = merged_idx.reset_index()
             else:
                 final_df = new_df
             
+            # จัดเรียงลำดับห้อง
             final_df['room_sort'] = final_df['ห้องเรียน'].apply(sort_rooms)
             final_df = final_df.sort_values(by=['room_sort', 'ลำดับ']).drop(columns=['room_sort'])
             
-            if "การพัฒนา (สรุปผล)" in final_df.columns:
-                final_df = final_df.drop(columns=["การพัฒนา (สรุปผล)"])
+            # เรียงลำดับคอลัมน์ให้สวยงาม (ข้อมูลพื้นฐาน -> วันที่ตรวจทั้งหมด)
+            fixed_cols = ["ลำดับ", "รหัสนักเรียน", "ชื่อนักเรียน", "ห้องเรียน"]
+            dynamic_cols = [c for c in final_df.columns if c not in fixed_cols and c != "การพัฒนา (สรุปผล)"]
+            final_df = final_df[fixed_cols + dynamic_cols]
             
-            week_cols = [c for c in final_df.columns if c not in groupby_cols]
-            
+            # คำนวณสรุปผลการพัฒนา
             def eval_trend(row):
                 statuses = []
-                for c in week_cols:
+                for c in dynamic_cols:
                     val = str(row[c]).strip()
                     if val != 'nan' and not val.startswith("ไม่ได้ตรวจ") and val != "None":
                         statuses.append(val)
@@ -239,29 +215,25 @@ if uploaded_files:
                 return "⚪ รอประเมิน"
                 
             final_df["การพัฒนา (สรุปผล)"] = final_df.apply(eval_trend, axis=1)
-            final_df_to_save = final_df
 
-            st.success("✨ ประมวลผลและสรุปเกณฑ์การพัฒนาเรียบร้อยแล้ว! เตรียมตัวเซฟได้เลยค่ะ")
+            st.success("✨ ประมวลผลและสรุปเกณฑ์การพัฒนาแบบสะสมคอลัมน์เรียบร้อยแล้ว!")
             st.dataframe(final_df, use_container_width=True, hide_index=True)
             
             st.markdown("---")
-            if st.button("💾 บันทึกข้อมูลทั้งหมดลง Google Sheets", type="primary", use_container_width=True):
-                with st.spinner("⏳ เจมี่กำลังวิ่งเอาข้อมูลไปเก็บที่ Google Sheets ให้เจ้านายค่ะ..."):
-                    if worksheet is not None:
-                        try:
-                            safe_df = final_df_to_save.astype(str)
-                            worksheet.clear()
-                            worksheet.update([safe_df.columns.values.tolist()] + safe_df.values.tolist())
-                            st.success("🎉 เซฟลงฐานข้อมูลสำเร็จเรียบร้อยแล้วค่ะเจ้านาย!")
-                            st.balloons()
-                            st.cache_data.clear() 
-                        except Exception as e:
-                            st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก: {e}")
-                    else:
-                        st.error("❌ ไม่สามารถบันทึกได้ เนื่องจากเชื่อมต่อ Google Sheets ไม่สำเร็จค่ะ (กุญแจอาจมีปัญหา)")
-
-elif not existing_df.empty:
-    st.info("📊 นี่คือข้อมูลล่าสุดจากฐานข้อมูล Google Sheets ของเราค่ะ")
-    st.dataframe(existing_df, use_container_width=True, hide_index=True)
+            
+            # สร้างปุ่มดาวน์โหลดไฟล์ Excel Master
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                final_df.to_excel(writer, index=False, sheet_name='Database')
+            excel_data = output.getvalue()
+            
+            st.download_button(
+                label="📥 ดาวน์โหลดฐานข้อมูล (Master Database) ไปเก็บไว้",
+                data=excel_data,
+                file_name=f"TU_N_Master_Database_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True
+            )
 else:
-    st.info("👈 ฐานข้อมูลยังว่างเปล่าอยู่เลยค่ะ เจ้านายอัปโหลดไฟล์เพื่อเริ่มต้นใช้งานได้เลยนะคะ")
+    st.info("👈 เจ้านายสามารถอัปโหลดไฟล์ Excel เพื่อให้ระบบประมวลผลได้เลยนะคะ")
