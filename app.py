@@ -66,8 +66,8 @@ def sort_rooms(room_str):
 # 4. โหลดข้อมูลเดิมจาก Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 try:
-    # 📌 ลบการอ้างอิงลิงก์ออกทั้งหมด! ปล่อยให้มันไปดึงจาก Secrets เองค่ะ
-    existing_df = conn.read(worksheet="Database")
+    # 📌 เจมี่เติม ttl=0 เข้าไป เพื่อสั่งให้มันอ่านข้อมูลใหม่สดๆ เสมอ และห้ามจำอะไรค้างไว้จนเอ๋อค่ะ!
+    existing_df = conn.read(worksheet="Database", ttl=0)
     if not existing_df.empty and 'รหัสนักเรียน' in existing_df.columns:
         existing_df = existing_df.dropna(subset=['รหัสนักเรียน'])
         existing_df['รหัสนักเรียน'] = existing_df['รหัสนักเรียน'].astype(str).str.replace(r'\.0$', '', regex=True)
