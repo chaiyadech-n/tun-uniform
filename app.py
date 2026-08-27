@@ -48,21 +48,25 @@ with tab1:
                 
                 # 1. หาเด็กลาออก และหาหน้าสรุปยอด
                 for sheet in xls.sheet_names:
-                    if "ลาออก" in sheet or "สละสิทธิ์" in sheet:
+                    sheet_name_str = str(sheet) # หุ้มเกราะให้ชื่อ Sheet
+                    
+                    if "ลาออก" in sheet_name_str or "สละสิทธิ์" in sheet_name_str:
                         df_resigned = pd.read_excel(xls, sheet_name=sheet, header=None, skiprows=3)
                         for col in df_resigned.columns:
                             ids = df_resigned[col].astype(str).str.extract(r'^(\d{5})$').dropna()[0].tolist()
                             resigned_ids.update(ids)
                             
-                    if "สรุป" in sheet:
+                    if "สรุป" in sheet_name_str:
                         df_sum = pd.read_excel(xls, sheet_name=sheet, header=None)
-                        for i, row in df_sum.astype(str).iterrows():
+                        for i, row in df_sum.iterrows():
                             for val in row:
-                                if "สำรวจเมื่อ" in val:
-                                    match = re.search(r'สำรวจเมื่อ\s*วันที่\s*(.*)', val)
+                                # 📌 จุดแก้บั๊ก: หุ้มเกราะให้ val เป็น str(val) เสมอ ป้องกัน float (ช่องว่าง)
+                                if "สำรวจเมื่อ" in str(val):
+                                    match = re.search(r'สำรวจเมื่อ\s*วันที่\s*(.*)', str(val))
                                     if match:
                                         REG_UPDATED_DATE = match.group(1).strip()
-                            if row.str.contains('ม.ปลาย').any():
+                                        
+                            if row.astype(str).str.contains('ม.ปลาย').any():
                                 nums = pd.to_numeric(row, errors='coerce').dropna().tolist()
                                 if len(nums) >= 3:
                                     SCHOOL_TOTAL_MALE = int(nums[-3])
