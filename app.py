@@ -529,6 +529,24 @@ with tab2:
                 with sc3:
                     st.metric("👧 หญิงที่ได้รับการประเมิน", f"{female_checked} คน")
                     with st.expander("👉 ดูรายชื่อ (หญิง)"): render_student_table(checked_overall_df[checked_overall_df['เพศ'] == 'หญิง'])
+
+                # ❌ เพิ่มส่วนนี้: กลุ่มนักเรียนที่ไม่ได้รับการประเมิน (พร้อม Dropdown ครบชุด)
+                not_checked_overall_df = dashboard_df[~checked_mask]
+                total_not_checked = len(not_checked_overall_df)
+                male_not_checked = len(not_checked_overall_df[not_checked_overall_df['เพศ'] == 'ชาย'])
+                female_not_checked = len(not_checked_overall_df[not_checked_overall_df['เพศ'] == 'หญิง'])
+
+                st.markdown("##### ❌ จำนวนนักเรียนที่ไม่ได้รับการประเมิน (ยังไม่เคยถูกตรวจเลย)")
+                nc1, nc2, nc3 = st.columns(3, gap="large")
+                with nc1:
+                    st.metric("❌ รวมไม่ได้รับการประเมิน", f"{total_not_checked} คน")
+                    with st.expander("👉 ดูรายชื่อ"): render_student_table(not_checked_overall_df)
+                with nc2:
+                    st.metric("❌ ชายที่ไม่ได้รับการประเมิน", f"{male_not_checked} คน")
+                    with st.expander("👉 ดูรายชื่อ (ชาย)"): render_student_table(not_checked_overall_df[not_checked_overall_df['เพศ'] == 'ชาย'])
+                with nc3:
+                    st.metric("❌ หญิงที่ไม่ได้รับการประเมิน", f"{female_not_checked} คน")
+                    with st.expander("👉 ดูรายชื่อ (หญิง)"): render_student_table(not_checked_overall_df[not_checked_overall_df['เพศ'] == 'หญิง'])
                 
                 st.markdown("##### 📌 สรุปเกณฑ์การพัฒนาล่าสุดของนักเรียน")
                 df_ex = dashboard_df[dashboard_df["การพัฒนา (สรุปผล)"] == "⭐⭐⭐ ดีเยี่ยม"]
