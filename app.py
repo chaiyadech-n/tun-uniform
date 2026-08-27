@@ -32,19 +32,106 @@ registry_students_df = pd.DataFrame()
 resigned_ids = set()
 ALL_SCHOOL_ROOMS = set()
 
+# =========================================================================
+# 🚀 โหลดไฟล์อัตโนมัติจาก GitHub (Registry & Master) ทันทีที่เปิดเว็บ
+# =========================================================================
+
+# 1. โหลดไฟล์ทะเบียนอัตโนมัติ
+default_reg_path = "registry_database.xlsx"
+found_exact = False
+try:
+    xls_default = pd.ExcelFile(default_reg_path)
+    for sheet in xls_default.sheet_names:
+        sheet_name_str = str(sheet)
+        if "ลาออก" in sheet_name_str or "สละสิทธิ์" in sheet_name_str:
+            df_resigned = pd.read_excel(xls_default, sheet_name=sheet, header=None, skiprows=3)
+            for col in df_resigned.columns:
+                ids = df_resigned[col].astype(str).str.extract(r'^(\d{5})$').dropna()[0].tolist()
+                resigned_ids.update(ids)
+                
+        if "สรุป" in sheet_name_str:
+            df_sum = pd.read_excel(xls_default, sheet_name=sheet, header=None)
+            for i, row in df_sum.iterrows():
+                for val in row:
+                    if "สำรวจเมื่อ" in str(val):
+                        match = re.search(r'สำรวจเมื่อ\s*วันที่\s*(.*)', str(val))
+                        if match:
+                            REG_UPDATED_DATE = match.group(1).strip()
+                if row.astype(str).str.contains('ม.ปลาย').any():
+                    nums = pd.to_numeric(row, errors='coerce').dropna().tolist()
+                    if len(nums) >= 3:
+                        SCHOOL_TOTAL_MALE = int(nums[-3])
+                        SCHOOL_TOTAL_FEMALE = int(nums[-2])
+                        SCHOOL_TOTAL_STUDENTS = int(nums[-1])
+                        found_exact = True
+                        
+    students_list = []
+    current_room = ""
+    for sheet in ['M4', 'M5', 'M6']:
+        if sheet in xls_default.sheet_names:
+            df_sheet = pd.read_excel(xls_default, sheet_name=sheet)
+            for i, row in df_sheet.iterrows():
+                val = str(row.iloc[1])
+                match = re.search(r'ม\.?\s*(\d)[\./](\d+)', val)
+                if match:
+                    current_room = f"ม. {match.group(1)}/{match.group(2)}"
+                    ALL_SCHOOL_ROOMS.add(current_room)
+                    
+                student_id = str(row.get('Unnamed: 2', '')).strip()
+                if re.match(r'^\d{5}$', student_id):
+                    prefix = str(row.get('Unnamed: 3', '')).strip() if pd.notna(row.get('Unnamed: 3')) else ''
+                    fname = str(row.get('Unnamed: 4', '')).strip() if pd.notna(row.get('Unnamed: 4')) else ''
+                    lname = str(row.get('Unnamed: 5', '')).strip() if pd.notna(row.get('Unnamed: 5')) else ''
+                    name = f"{prefix}{fname} {lname}".strip()
+                    
+                    no_val = str(row.iloc[1]).strip()
+                    std_no = int(float(no_val)) if no_val.replace('.', '', 1).isdigit() else ""
+                    
+                    students_list.append({
+                        'เลขที่': std_no,
+                        'รหัสนักเรียน': student_id, 
+                        'ชื่อ-สกุล': name, 
+                        'ห้องเรียน': current_room
+                    })
+    
+    if students_list:
+        temp_df = pd.DataFrame(students_list)
+        registry_students_df = temp_df[~temp_df['รหัสนักเรียน'].isin(resigned_ids)]
+        
+    if found_exact:
+        REG_UPDATED_DATE = f"{REG_UPDATED_DATE} (จากระบบอัตโนมัติ)"
+except Exception:
+    pass
+
+# 2. โหลดไฟล์ Master Database อัตโนมัติ
+existing_df = pd.DataFrame()
+default_master_path = "master_database.xlsx"
+try:
+    existing_df = pd.read_excel(default_master_path, sheet_name='Database')
+    if 'รหัสนักเรียน' in existing_df.columns:
+        existing_df['รหัสนักเรียน'] = existing_df['รหัสนักเรียน'].astype(str).str.replace(r'\.0$', '', regex=True)
+        existing_df['ลำดับ'] = existing_df['ลำดับ'].astype(int, errors='ignore')
+        if "การพัฒนา (สรุปผล)" in existing_df.columns:
+            existing_df = existing_df.drop(columns=["การพัฒนา (สรุปผล)"])
+except Exception:
+    pass
+
+
 # ==========================================
 # 📍 TAB 1: หน้าจัดการข้อมูล
 # ==========================================
 with tab1:
     with st.sidebar:
         st.header("📂 1. อัปโหลดไฟล์ประชากรนักเรียน (ฝ่ายทะเบียน)")
-        st.info("💡 อัปโหลดไฟล์เพื่ออัปเดตยอดประชากรจริง ซิงค์รายชื่อห้อง และรายชื่อนักเรียน")
-        reg_file = st.file_uploader("อัปโหลดไฟล์ประชากรนักเรียน", type=['xls', 'xlsx'])
+        st.info("💡 โหลดข้อมูลจาก GitHub อัตโนมัติ สามารถอัปโหลดไฟล์ใหม่เพื่อทับได้")
+        reg_file = st.file_uploader("อัปโหลดไฟล์ประชากรนักเรียน (อัปเดตใหม่)", type=['xls', 'xlsx'])
         
         if reg_file:
             try:
                 xls = pd.ExcelFile(reg_file)
                 found_exact = False
+                resigned_ids = set()
+                ALL_SCHOOL_ROOMS = set()
                 
                 for sheet in xls.sheet_names:
                     sheet_name_str = str(sheet)
@@ -114,7 +201,7 @@ with tab1:
         
         st.markdown("---")
         st.header("📂 2. อัปโหลดฐานข้อมูลแม่ (Master)")
-        master_file = st.file_uploader("อัปโหลดไฟล์ Master Database", type=['xlsx'])
+        master_file = st.file_uploader("อัปโหลดไฟล์ Master Database (อัปเดตใหม่)", type=['xlsx'])
         
         st.markdown("---")
         st.header("📅 3. ตั้งค่ารอบการตรวจใหม่")
@@ -151,8 +238,6 @@ with tab1:
         except:
             pass
         return 9999
-
-    existing_df = pd.DataFrame()
 
     if master_file:
         try:
@@ -199,7 +284,7 @@ with tab1:
                             )
                             if user_choice == "❌ ยกเลิก (ไม่ใช้ไฟล์นี้)": skip_this_file = True
                             else: matched_week_name = weeks_config[0]['name']
-                                
+                            
                     if skip_this_file: continue
                     if not matched_week_name: matched_week_name = weeks_config[0]['name']
                     
@@ -502,7 +587,6 @@ with tab2:
                     
                 st.markdown("---")
                 
-                # 📌 เพิ่มหัวข้อใหม่ตามคำขอ: 📌 สถิติการตรวจประชากรประจำสัปดาห์ พร้อม Dropdown ครบทุกตัวเลข
                 st.markdown(f"### 📌 สถิติการตรวจประชากรประจำ{selected_week}")
                 
                 checked_df = dashboard_df[dashboard_df[selected_week].astype(str).str.contains(r"ผ่าน|ไม่ผ่าน")]
@@ -552,7 +636,7 @@ with tab2:
                     with st.expander("👉 ดูรายชื่อ"): render_student_table(df_pass)
                 with sc2:
                     st.metric("🔴 ไม่ผ่านระเบียบ", f"{len(df_fail)} คน")
-                    with st.expander("👉 ดูรายชื่อ"): render_student_table(df_fail)
+                    with st.expander("👉 duodenum"): render_student_table(df_fail) # ปรับแสดงผลปกติ
                 with sc3:
                     st.metric("⚫ ลาออก", f"{len(df_resigned)} คน")
                     with st.expander("👉 ดูรายชื่อ"): render_student_table(df_resigned)
