@@ -64,19 +64,19 @@ def sort_rooms(room_str):
         pass
     return 9999
 
-# --- ฟังก์ชันเชื่อมต่อ Google Sheets แบบตรงๆ (ชัวร์ 100%) ---
+# --- ฟังก์ชันเชื่อมต่อ Google Sheets แบบตรงๆ (เพิ่มกุญแจ VIP ครบชุด!) ---
 def init_gsheets():
     try:
-        # ดึงกุญแจจาก Secrets
         secret_dict = dict(st.secrets["connections"]["gsheets"])
-        # แปลงกุญแจเป็นบัตรผ่าน
+        # 📌 เติม scope ของ Drive เข้าไป เพื่อให้หุ่นยนต์มองเห็นไฟล์ค่ะ!
         creds = Credentials.from_service_account_info(
             secret_dict, 
-            scopes=["https://www.googleapis.com/auth/spreadsheets"]
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive"
+            ]
         )
-        # เสียบบัตรเข้าระบบ
         client = gspread.authorize(creds)
-        # เจาะจงไปที่ไฟล์นี้เป๊ะๆ!
         sheet = client.open_by_key("1GfNCVEsKhSVq6QAXfnkMWHh_lMxsK5KFAeoUcVJhVPY")
         return sheet.worksheet("Database")
     except Exception as e:
@@ -239,9 +239,10 @@ if uploaded_files:
                 with st.spinner("⏳ เจมี่กำลังวิ่งเอาข้อมูลไปเก็บที่ Google Sheets ให้เจ้านายค่ะ..."):
                     if worksheet is not None:
                         try:
-                            # 📌 ล้างข้อมูลเก่าแล้วเขียนทับใหม่ด้วย gspread เพียวๆ
+                            # 📌 แปลงข้อมูลทั้งหมดเป็นข้อความให้ชัวร์ที่สุด ป้องกัน Error ชนิดข้อมูลค่ะ
+                            safe_df = final_df_to_save.astype(str)
                             worksheet.clear()
-                            worksheet.update([final_df_to_save.columns.values.tolist()] + final_df_to_save.values.tolist())
+                            worksheet.update([safe_df.columns.values.tolist()] + safe_df.values.tolist())
                             st.success("🎉 เซฟลงฐานข้อมูลสำเร็จเรียบร้อยแล้วค่ะเจ้านาย! (สามารถปิดหน้าต่างหรือกดกากบาทลบไฟล์ที่อัปโหลดออกได้เลยค่ะ)")
                             st.balloons()
                         except Exception as e:
