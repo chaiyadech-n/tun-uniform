@@ -239,13 +239,14 @@ with tab1:
         dynamic_cols = [c for c in final_df.columns if c not in fixed_cols and c != "การพัฒนา (สรุปผล)"]
         final_df = final_df[fixed_cols + dynamic_cols]
         
-        # 📌 ระบบจัดการเด็กลาออกอัตโนมัติ (เปลี่ยนค่าว่างให้เป็น ลาออก)
+        # 📌 ระบบจัดการเด็กลาออกอัตโนมัติ
         if resigned_ids:
             for w in dynamic_cols:
                 mask = final_df['รหัสนักเรียน'].astype(str).isin(resigned_ids) & \
                        final_df[w].astype(str).str.contains(r"ไม่ได้ตรวจ|nan|None", na=True)
                 final_df.loc[mask, w] = "⚪ ลาออก"
         
+        # 📌 อัปเดตเกณฑ์การให้ดาวแบบใจดี (กลับตัวกลับใจ 3 ครั้งได้ดาวเต็ม!)
         def eval_trend(row):
             statuses = []
             for c in dynamic_cols:
@@ -257,12 +258,26 @@ with tab1:
                 return "⚫ พ้นสภาพ/ลาออก"
                 
             if not statuses: return "⚪ รอประเมิน"
+            
             latest_stat = statuses[-1] 
-            if "ไม่ผ่าน" in latest_stat: return "🔴 ต้องปรับปรุง"
+            
+            if "ไม่ผ่าน" in latest_stat: 
+                return "🔴 ต้องปรับปรุง"
+                
             if "ผ่าน" == latest_stat:
-                if all(s == "ผ่าน" for s in statuses): return "⭐⭐⭐ ดีเยี่ยม"
-                if len(statuses) >= 2 and statuses[-2] == "ผ่าน": return "⭐⭐ ดี"
-                return "🟢 ดีขึ้น"
+                # ถ้ามีประวัติตั้งแต่ 3 ครั้งขึ้นไป แล้ว 3 ครั้งล่าสุดผ่านรวด = ล้างมลทินให้ ดีเยี่ยม!
+                if len(statuses) >= 3 and all(s == "ผ่าน" for s in statuses[-3:]):
+                    return "⭐⭐⭐ ดีเยี่ยม"
+                # ถ้าประวัติยังมีไม่ถึง 3 ครั้ง แต่ตั้งแต่ตรวจมาใสสะอาดผ่านหมดเลย = ดีเยี่ยม!
+                elif all(s == "ผ่าน" for s in statuses):
+                    return "⭐⭐⭐ ดีเยี่ยม"
+                # ถ้า 2 ครั้งล่าสุดผ่าน (แต่ก่อนหน้านั้นเพิ่งมีประวัติไม่ผ่าน) = ดี
+                elif len(statuses) >= 2 and statuses[-2] == "ผ่าน":
+                    return "⭐⭐ ดี"
+                # เพิ่งสอบผ่านครั้งแรก หลังจากที่ก่อนหน้านี้ไม่ผ่าน
+                else:
+                    return "🟢 ดีขึ้น"
+                    
             return "⚪ รอประเมิน"
             
         final_df["การพัฒนา (สรุปผล)"] = final_df.apply(eval_trend, axis=1)
@@ -326,7 +341,6 @@ with tab2:
                     room_data = dashboard_df[dashboard_df['ห้องเรียน'] == room]
                     missed_weeks = []
                     for w in week_cols:
-                        # 📌 ห้องที่ถือว่าส่งผล คือห้องที่มีการประเมิน ผ่าน/ไม่ผ่าน อย่างน้อย 1 คน
                         has_evaluated = room_data[w].astype(str).str.contains(r"ผ่าน|ไม่ผ่าน").any()
                         if not has_evaluated:
                             missed_weeks.append(w)
@@ -394,7 +408,6 @@ with tab2:
                 
                 for room in all_present_rooms:
                     room_data = dashboard_df[dashboard_df['ห้องเรียน'] == room]
-                    # 📌 ตรวจว่าครูมีการให้ ผ่าน/ไม่ผ่าน ในสัปดาห์นี้หรือไม่
                     has_evaluated = room_data[selected_week].astype(str).str.contains(r"ผ่าน|ไม่ผ่าน").any()
                     if not has_evaluated:
                         missing_rooms.append(room)
@@ -414,7 +427,6 @@ with tab2:
                 st.markdown("---")
                 st.markdown(f"### 📊 ภาพรวมสถิตินักเรียน (ประจำ{selected_week})")
                 
-                # นักเรียนที่ได้รับการตรวจจริงๆ (ต้องเป็นคำว่า ผ่าน หรือ ไม่ผ่าน)
                 checked_df = dashboard_df[dashboard_df[selected_week].astype(str).str.contains(r"ผ่าน|ไม่ผ่าน")]
                 
                 total_checked = len(checked_df)
@@ -425,7 +437,6 @@ with tab2:
                 failed = len(checked_df[checked_df[selected_week].astype(str).str.contains("ไม่ผ่าน")])
                 resigned = len(dashboard_df[dashboard_df[selected_week] == "⚪ ลาออก"])
                 
-                # 📌 ยอดเด็กที่ขาดการประเมิน = ยอดปัจจุบัน(หักคนออกแล้ว) - คนที่ตรวจแล้ว
                 missing_students = SCHOOL_TOTAL_STUDENTS - total_checked
                 
                 c1, c2, c3 = st.columns(3)
