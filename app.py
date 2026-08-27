@@ -218,14 +218,24 @@ with tab1:
         st.dataframe(final_df, use_container_width=True, hide_index=True)
         st.markdown("---")
         
+        # --- สร้างปุ่มดาวน์โหลดไฟล์ Excel Master พร้อมชื่อสุดสมาร์ท ---
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             final_df.to_excel(writer, index=False, sheet_name='Database')
+            
+        # 📌 ดึงวันที่จาก "1. จิ้มเลือกวันที่ตรวจ" ของสัปดาห์ที่ 1 (sel_date_0)
+        if "sel_date_0" in st.session_state:
+            check_date_str = st.session_state["sel_date_0"].strftime('%Y%m%d')
+        else:
+            check_date_str = datetime.now().strftime('%Y%m%d') # สำรองเผื่อระบบหาไม่เจอ
+            
+        # 📌 วันที่ปัจจุบันที่กดดาวน์โหลด
+        current_date_str = datetime.now().strftime('%Y%m%d')
         
         st.download_button(
             label="📥 ดาวน์โหลดฐานข้อมูล (Master Database) ไปเก็บไว้",
             data=output.getvalue(),
-            file_name=f"Master_Database_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            file_name=f"Master_Database_{check_date_str}_{current_date_str}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
             use_container_width=True
