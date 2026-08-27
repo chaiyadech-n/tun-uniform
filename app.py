@@ -5,7 +5,7 @@ from datetime import datetime
 from io import StringIO
 from streamlit_gsheets import GSheetsConnection
 
-# 📌 ลิงก์ Google Sheets ของเจ้านาย (เจมี่ใส่ให้เรียบร้อยแล้วค่ะ!)
+# 📌 ลิงก์ Google Sheets ของเจ้านาย
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1GfNCVEsKhSVq6QAXfnkMWHh_lMxsK5KFAeoUcVJhVPY/edit"
 
 # 1. ตั้งค่าหน้าเว็บ
@@ -26,13 +26,30 @@ with st.sidebar:
     st.header("📅 1. ตั้งค่ารอบการตรวจ")
     num_weeks = st.number_input("จำนวนสัปดาห์ที่ต้องการตั้งค่า", min_value=1, max_value=10, value=1)
     
+    # ฟังก์ชันเวทมนตร์สำหรับซิงค์วันที่และชื่อคอลัมน์เข้าด้วยกัน
+    def update_col_name(idx):
+        d = st.session_state[f"sel_date_{idx}"]
+        st.session_state[f"name_{idx}"] = f"สัปดาห์ที่ {d.strftime('%d/%m/')}{d.year + 543}"
+    
     weeks_config = []
     for i in range(num_weeks):
         st.markdown(f"**📌 สัปดาห์ที่ {i+1}**")
-        sel_date = st.date_input(f"1. จิ้มเลือกวันที่ตรวจ", key=f"sel_date_{i}")
-        default_name = f"สัปดาห์ที่ {sel_date.strftime('%d/%m/')}{sel_date.year + 543}"
-        week_name = st.text_input(f"2. ชื่อคอลัมน์ (แก้ไขได้)", value=default_name, key=f"name_{i}")
+        
+        # ปฏิทินเลือกวันที่ (ผูกระบบอัปเดตชื่ออัตโนมัติเมื่อมีการเปลี่ยนแปลง)
+        sel_date = st.date_input(
+            f"1. จิ้มเลือกวันที่ตรวจ", 
+            key=f"sel_date_{i}", 
+            on_change=update_col_name, 
+            args=(i,)
+        )
+        
+        # กำหนดค่าเริ่มต้นให้ชื่อคอลัมน์
+        if f"name_{i}" not in st.session_state:
+            st.session_state[f"name_{i}"] = f"สัปดาห์ที่ {sel_date.strftime('%d/%m/')}{sel_date.year + 543}"
+            
+        week_name = st.text_input(f"2. ชื่อคอลัมน์ (แก้ไขได้)", key=f"name_{i}")
         date_rng = st.date_input(f"3. เลือกช่วงวันที่ครอบคลุม", [], key=f"rng_{i}")
+        
         weeks_config.append({'name': week_name, 'range': date_rng})
         st.markdown("---")
     
@@ -57,7 +74,6 @@ def sort_rooms(room_str):
 # 4. โหลดข้อมูลเดิมจาก Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 try:
-    # 📌 เปลี่ยนชื่อแผ่นงานเป็น Database แล้วค่ะ
     existing_df = conn.read(spreadsheet=SHEET_URL, worksheet="Database")
     if not existing_df.empty and 'รหัสนักเรียน' in existing_df.columns:
         existing_df = existing_df.dropna(subset=['รหัสนักเรียน'])
@@ -167,7 +183,6 @@ if uploaded_files:
             
             week_cols = [c for c in final_df.columns if c not in groupby_cols]
             
-            # --- เวทมนตร์คำนวณเกณฑ์ใหม่ ---
             def eval_trend(row):
                 statuses = []
                 for c in week_cols:
@@ -195,7 +210,6 @@ if uploaded_files:
                             return "🟢 ดีขึ้น"
                             
                 return "⚪ รอประเมิน"
-            # --- จบส่วนคำนวณเกณฑ์ประเมิน ---
                 
             final_df["การพัฒนา (สรุปผล)"] = final_df.apply(eval_trend, axis=1)
             final_df_to_save = final_df
@@ -207,7 +221,6 @@ if uploaded_files:
             if st.button("💾 บันทึกข้อมูลทั้งหมดลง Google Sheets", type="primary", use_container_width=True):
                 with st.spinner("⏳ เจมี่กำลังวิ่งเอาข้อมูลไปเก็บที่ Google Sheets ให้เจ้านายค่ะ..."):
                     try:
-                        # 📌 สั่งเคลียร์และอัปเดตข้อมูลลงแผ่นงาน Database
                         conn.clear(worksheet="Database")
                         conn.update(worksheet="Database", data=final_df_to_save)
                         st.success("🎉 เซฟลงฐานข้อมูลสำเร็จเรียบร้อยแล้วค่ะเจ้านาย! (สามารถปิดหน้าต่างหรือกดกากบาทลบไฟล์ที่อัปโหลดออกได้เลยค่ะ)")
