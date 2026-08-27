@@ -5,7 +5,7 @@ from datetime import datetime
 from io import StringIO
 from streamlit_gsheets import GSheetsConnection
 
-# 📌 ลิงก์ Google Sheets ของเจ้านาย
+# 📌 ต้องเป็นแบบนี้นะคะ (ระวังอย่าให้มีช่องว่างหน้า-หลังเครื่องหมายคำพูด)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1GfNCVEsKhSVq6QAXfnkMWHh_lMxsK5KFAeoUcVJhVPY/edit"
 
 # 1. ตั้งค่าหน้าเว็บ
