@@ -46,10 +46,8 @@ with tab1:
                 xls = pd.ExcelFile(reg_file)
                 found_exact = False
                 
-                # 1. หาเด็กลาออก และหาหน้าสรุปยอด
                 for sheet in xls.sheet_names:
                     sheet_name_str = str(sheet)
-                    
                     if "ลาออก" in sheet_name_str or "สละสิทธิ์" in sheet_name_str:
                         df_resigned = pd.read_excel(xls, sheet_name=sheet, header=None, skiprows=3)
                         for col in df_resigned.columns:
@@ -72,7 +70,6 @@ with tab1:
                                     SCHOOL_TOTAL_STUDENTS = int(nums[-1])
                                     found_exact = True
                                     
-                # 2. ดึงรายชื่อเด็กและแปลงชื่อห้องให้เป็นมาตรฐานเดียวกัน
                 students_list = []
                 current_room = ""
                 for sheet in ['M4', 'M5', 'M6']:
@@ -195,7 +192,6 @@ with tab1:
                                 break
                         
                         if not matched_week_name:
-                            # 📌 ปรับแก้ข้อความในปุ่มตัวเลือกให้ชัดเจนขึ้น
                             user_choice = st.radio(
                                 f"ต้องการดำเนินการอย่างไรกับไฟล์ {file.name}?",
                                 ["❌ ยกเลิก (ไม่ใช้ไฟล์นี้)", "✅ ดำเนินการต่อ (ใช้ไฟล์นี้เป็นข้อมูล)"],
@@ -505,15 +501,34 @@ with tab2:
                     with st.expander("👉 ดูห้องที่ยังไม่ส่ง"): st.write(", ".join(missing_rooms) if missing_rooms else "-")
                     
                 st.markdown("---")
-                st.markdown(f"### 📊 ภาพรวมสถิตินักเรียน (ประจำ{selected_week})")
+                
+                # 📌 เพิ่มหัวข้อใหม่ตามคำขอ: 📌 สถิติการตรวจประชากรประจำสัปดาห์ พร้อม Dropdown ครบทุกตัวเลข
+                st.markdown(f"### 📌 สถิติการตรวจประชากรประจำ{selected_week}")
                 
                 checked_df = dashboard_df[dashboard_df[selected_week].astype(str).str.contains(r"ผ่าน|ไม่ผ่าน")]
+                total_checked = len(checked_df)
+                male_checked = len(checked_df[checked_df['เพศ'] == 'ชาย'])
+                female_checked = len(checked_df[checked_df['เพศ'] == 'หญิง'])
+                
+                w_c1, w_c2, w_c3 = st.columns(3, gap="large")
+                with w_c1:
+                    st.metric("👥 นักเรียนที่ได้รับการตรวจ", f"{total_checked} คน")
+                    with st.expander("👉 ดูรายชื่อ (ที่ตรวจแล้ว)"): render_student_table(checked_df)
+                with w_c2:
+                    st.metric("👦 ชายที่ได้รับการตรวจ", f"{male_checked} คน")
+                    with st.expander("👉 ดูรายชื่อ (ชายที่ตรวจแล้ว)"): render_student_table(checked_df[checked_df['เพศ'] == 'ชาย'])
+                with w_c3:
+                    st.metric("👧 หญิงที่ได้รับการตรวจ", f"{female_checked} คน")
+                    with st.expander("👉 ดูรายชื่อ (หญิงที่ตรวจแล้ว)"): render_student_table(checked_df[checked_df['เพศ'] == 'หญิง'])
+                
+                st.markdown("---")
+                st.markdown(f"### 📊 ภาพรวมสถิตินักเรียน (ประจำ{selected_week})")
+                
                 df_pass = checked_df[checked_df[selected_week] == "ผ่าน"]
                 df_fail = checked_df[checked_df[selected_week].astype(str).str.contains("ไม่ผ่าน")]
                 df_resigned = dashboard_df[dashboard_df[selected_week] == "⚪ ลาออก"]
                 df_missing = dashboard_df[~dashboard_df.index.isin(checked_df.index) & ~dashboard_df.index.isin(df_resigned.index)]
                 
-                total_checked = len(checked_df)
                 missing_students_count = SCHOOL_TOTAL_STUDENTS - total_checked
                 
                 df_reg_male = registry_students_df[registry_students_df['เพศ'] == 'ชาย'] if not registry_students_df.empty else pd.DataFrame()
