@@ -30,15 +30,15 @@ SCHOOL_TOTAL_FEMALE = 1168
 REG_UPDATED_DATE = "ยังไม่ได้อัปโหลดไฟล์งานทะเบียน"
 registry_students_df = pd.DataFrame()
 resigned_ids = set()
+ALL_SCHOOL_ROOMS = set() # เก็บรายชื่อห้องจริงจากฝ่ายทะเบียน
 
 # ==========================================
 # 📍 TAB 1: หน้าจัดการข้อมูล
 # ==========================================
 with tab1:
     with st.sidebar:
-        # --- 📌 ส่วนที่ 1: ข้อมูลประชากรจากฝ่ายทะเบียน ---
         st.header("📂 1. อัปโหลดไฟล์ประชากรนักเรียน (ฝ่ายทะเบียน)")
-        st.info("💡 อัปโหลดไฟล์เพื่ออัปเดตยอดประชากรจริง และซิงค์รายชื่อนักเรียนอัตโนมัติ")
+        st.info("💡 อัปโหลดไฟล์เพื่ออัปเดตยอดประชากรจริง ซิงค์รายชื่อห้อง และรายชื่อนักเรียน")
         reg_file = st.file_uploader("อัปโหลดไฟล์ประชากรนักเรียน", type=['xls', 'xlsx'])
         
         if reg_file:
@@ -48,7 +48,7 @@ with tab1:
                 
                 # 1. หาเด็กลาออก และหาหน้าสรุปยอด
                 for sheet in xls.sheet_names:
-                    sheet_name_str = str(sheet) # หุ้มเกราะให้ชื่อ Sheet
+                    sheet_name_str = str(sheet)
                     
                     if "ลาออก" in sheet_name_str or "สละสิทธิ์" in sheet_name_str:
                         df_resigned = pd.read_excel(xls, sheet_name=sheet, header=None, skiprows=3)
@@ -60,12 +60,10 @@ with tab1:
                         df_sum = pd.read_excel(xls, sheet_name=sheet, header=None)
                         for i, row in df_sum.iterrows():
                             for val in row:
-                                # 📌 จุดแก้บั๊ก: หุ้มเกราะให้ val เป็น str(val) เสมอ ป้องกัน float (ช่องว่าง)
                                 if "สำรวจเมื่อ" in str(val):
                                     match = re.search(r'สำรวจเมื่อ\s*วันที่\s*(.*)', str(val))
                                     if match:
                                         REG_UPDATED_DATE = match.group(1).strip()
-                                        
                             if row.astype(str).str.contains('ม.ปลาย').any():
                                 nums = pd.to_numeric(row, errors='coerce').dropna().tolist()
                                 if len(nums) >= 3:
@@ -74,19 +72,37 @@ with tab1:
                                     SCHOOL_TOTAL_STUDENTS = int(nums[-1])
                                     found_exact = True
                                     
-                # 2. ดึงรายชื่อเด็กทั้งหมดมาเก็บไว้ในลิ้นชัก
+                # 2. ดึงรายชื่อเด็กทั้งหมด และ ดึงรายชื่อห้องทั้งหมด มาเก็บไว้
                 students_list = []
+                current_room = ""
                 for sheet in ['M4', 'M5', 'M6']:
                     if sheet in xls.sheet_names:
-                        df_sheet = pd.read_excel(xls, sheet_name=sheet, skiprows=3)
+                        df_sheet = pd.read_excel(xls, sheet_name=sheet)
+                        # ค้นหาชื่อห้อง
                         for i, row in df_sheet.iterrows():
-                            student_id = str(row['Unnamed: 2']).strip()
+                            val = str(row.iloc[1])
+                            match = re.search(r'ม\.(\d\.\d+)', val)
+                            if match:
+                                current_room = f"ม. {match.group(1)}"
+                                ALL_SCHOOL_ROOMS.add(current_room)
+                                
+                            student_id = str(row.get('Unnamed: 2', '')).strip()
                             if re.match(r'^\d{5}$', student_id):
-                                prefix = str(row['Unnamed: 3']).strip() if pd.notna(row['Unnamed: 3']) else ''
-                                fname = str(row['Unnamed: 4']).strip() if pd.notna(row['Unnamed: 4']) else ''
-                                lname = str(row['Unnamed: 5']).strip() if pd.notna(row['Unnamed: 5']) else ''
+                                prefix = str(row.get('Unnamed: 3', '')).strip() if pd.notna(row.get('Unnamed: 3')) else ''
+                                fname = str(row.get('Unnamed: 4', '')).strip() if pd.notna(row.get('Unnamed: 4')) else ''
+                                lname = str(row.get('Unnamed: 5', '')).strip() if pd.notna(row.get('Unnamed: 5')) else ''
                                 name = f"{prefix}{fname} {lname}".strip()
-                                students_list.append({'รหัสนักเรียน': student_id, 'ชื่อ-สกุล': name, 'ระดับชั้น': sheet})
+                                
+                                # หาเลขที่
+                                no_val = str(row.iloc[1]).strip()
+                                std_no = int(float(no_val)) if no_val.replace('.', '', 1).isdigit() else ""
+                                
+                                students_list.append({
+                                    'เลขที่': std_no,
+                                    'รหัสนักเรียน': student_id, 
+                                    'ชื่อ-สกุล': name, 
+                                    'ห้องเรียน': current_room
+                                })
                 
                 if students_list:
                     temp_df = pd.DataFrame(students_list)
@@ -99,17 +115,15 @@ with tab1:
             except Exception as e:
                 st.error(f"⚠️ อ่านไฟล์ทะเบียนไม่สำเร็จ: {e}")
                 
-        SCHOOL_TOTAL_ROOMS = st.number_input("🏫 จำนวนห้องเรียนทั้งหมดในระบบ (ปรับแก้ได้)", min_value=1, max_value=100, value=45)
+        SCHOOL_TOTAL_ROOMS = st.number_input("🏫 จำนวนห้องเรียนทั้งหมดในระบบ (ปรับแก้ได้)", min_value=1, max_value=100, value=len(ALL_SCHOOL_ROOMS) if ALL_SCHOOL_ROOMS else 45)
         
         st.markdown("---")
 
-        # --- 📌 ส่วนที่ 2: อัปโหลด Master Database ---
         st.header("📂 2. อัปโหลดฐานข้อมูลแม่ (Master)")
         master_file = st.file_uploader("อัปโหลดไฟล์ Master Database", type=['xlsx'])
         
         st.markdown("---")
         
-        # --- 📌 ส่วนที่ 3: ตั้งค่าสัปดาห์ ---
         st.header("📅 3. ตั้งค่ารอบการตรวจใหม่")
         num_weeks = st.number_input("จำนวนสัปดาห์ที่ต้องการตั้งค่า", min_value=1, max_value=10, value=1)
         
@@ -135,7 +149,6 @@ with tab1:
             weeks_config.append({'name': week_name, 'range': date_rng})
             st.markdown("---")
 
-    # --- 📌 พื้นที่หลัก: อัปโหลดไฟล์การตรวจ ---
     st.header("📥 4. นำเข้าข้อมูลการตรวจรอบใหม่")
     st.info("นำไฟล์ Excel จากระบบมาอัปโหลดที่นี่ (ลากวาง 45 ไฟล์พร้อมกันเลยค่ะ)")
     uploaded_files = st.file_uploader("ลากไฟล์การตรวจรอบใหม่มาวางที่นี่", type=['xls', 'xlsx'], accept_multiple_files=True)
@@ -219,6 +232,9 @@ with tab1:
                             for idx, row in df.iterrows():
                                 if str(row.get('ลำดับ', '')).strip().isdigit():
                                     room = str(row.get('ห้องเรียน', '')).strip()
+                                    # 📌 ดึงชื่อห้องไปอัปเดตในฐานข้อมูลห้องรวมด้วย เผื่อตกหล่น
+                                    ALL_SCHOOL_ROOMS.add(room.replace("ม.", "ม. ").replace("  ", " "))
+                                    
                                     passed = str(row.get('ผ่าน', '')).strip() == '/'
                                     remarks = str(row.get('หมายเหตุ', '')).strip()
                                     failed_reasons = []
@@ -268,14 +284,12 @@ with tab1:
         dynamic_cols = [c for c in final_df.columns if c not in fixed_cols and c != "การพัฒนา (สรุปผล)"]
         final_df = final_df[fixed_cols + dynamic_cols]
         
-        # จัดการเด็กลาออกอัตโนมัติ
         if resigned_ids:
             for w in dynamic_cols:
                 mask = final_df['รหัสนักเรียน'].astype(str).isin(resigned_ids) & \
                        final_df[w].astype(str).str.contains(r"ไม่ได้ตรวจ|nan|None", na=True)
                 final_df.loc[mask, w] = "⚪ ลาออก"
         
-        # เกณฑ์ให้ดาว
         def eval_trend(row):
             statuses = []
             for c in dynamic_cols:
@@ -326,17 +340,26 @@ with tab1:
 # 📍 TAB 2: หน้าแดชบอร์ดผู้บริหาร
 # ==========================================
 with tab2:
-    # 📌 ส่วนแสดงวันที่อัปเดตข้อมูลให้โดดเด่น
     st.info(f"📅 **ข้อมูลประชากรนักเรียนอัปเดตล่าสุด:** {REG_UPDATED_DATE}")
     st.header("📈 แดชบอร์ดผู้บริหาร: สรุปผลการติดตามวินัยนักเรียน")
     
-    # 📌 ครอบคลุมทุกคำนำหน้าที่เป็นไปได้
     def get_gender(name):
         name_str = str(name).strip()
         if name_str.startswith(('นาย', 'ด.ช.', 'เด็กชาย')): return 'ชาย'
         if name_str.startswith(('นางสาว', 'ด.ญ.', 'น.ส.', 'เด็กหญิง')): return 'หญิง'
         return 'ไม่ระบุ'
         
+    # ฟังก์ชันช่วยสร้างตารางสวยๆ แสดงแค่ เลขที่, รหัส, ชื่อ, ห้อง
+    def render_student_table(df_to_render, key_suffix=""):
+        if not df_to_render.empty:
+            cols_to_show = ["ลำดับ", "รหัสนักเรียน", "ชื่อนักเรียน", "ห้องเรียน"]
+            # กรณีที่ข้อมูลมาจากไฟล์ทะเบียน (ไม่มีคอลัมน์ลำดับ)
+            if "ลำดับ" not in df_to_render.columns and "เลขที่" in df_to_render.columns:
+                cols_to_show = ["เลขที่", "รหัสนักเรียน", "ชื่อ-สกุล", "ห้องเรียน"]
+            st.dataframe(df_to_render[cols_to_show], use_container_width=True, hide_index=True)
+        else:
+            st.info("ไม่มีข้อมูลในหมวดหมู่นี้ค่ะ")
+
     if not dashboard_df.empty:
         dashboard_df['เพศ'] = dashboard_df['ชื่อนักเรียน'].apply(get_gender)
         
@@ -346,15 +369,27 @@ with tab2:
             selected_option = st.selectbox("📅 เลือกคอลัมน์สัปดาห์ที่ต้องการดูสรุป", options, index=0)
             st.markdown("---")
             
+            # 📌 1. จัดการรายชื่อห้องทั้งหมดให้เสถียรสุดๆ
+            # เอารายชื่อห้องที่ครูส่งมา (จาก Master) มารวมกับ รายชื่อห้องจากไฟล์ทะเบียน (ถ้ามี)
+            all_present_rooms = set(dashboard_df['ห้องเรียน'].unique())
+            # ลบช่องว่างหรือการพิมพ์ที่ผิดพลาดออก เพื่อให้ Format ตรงกัน (ม.4.1 vs ม. 4.1)
+            formatted_registry_rooms = {r.replace("ม.", "ม. ").replace("  ", " ") for r in ALL_SCHOOL_ROOMS}
+            final_all_rooms = sorted(list(all_present_rooms.union(formatted_registry_rooms)), key=sort_rooms)
+            
             if selected_option == "🌟 สรุปภาพรวมทั้งหมด":
                 st.markdown(f"### 👩‍🏫 การปฏิบัติงานของครูประจำชั้น (สรุปภาพรวมทุกสัปดาห์)")
-                all_present_rooms = dashboard_df['ห้องเรียน'].unique()
+                
                 submitted_all_weeks_rooms = []
                 missing_any_week_rooms = []
                 
-                for room in all_present_rooms:
+                for room in final_all_rooms:
                     room_data = dashboard_df[dashboard_df['ห้องเรียน'] == room]
                     missed_weeks = []
+                    
+                    if room_data.empty: # กรณีมีชื่อห้องในทะเบียน แต่ไม่มีใครส่งไฟล์ห้องนี้มาเลย
+                        missing_any_week_rooms.append(room)
+                        continue
+                        
                     for w in week_cols:
                         has_evaluated = room_data[w].astype(str).str.contains(r"ผ่าน|ไม่ผ่าน").any()
                         if not has_evaluated:
@@ -364,19 +399,19 @@ with tab2:
                     else:
                         submitted_all_weeks_rooms.append(room)
                         
-                missing_count = SCHOOL_TOTAL_ROOMS - len(submitted_all_weeks_rooms)
+                # นับจากจำนวนห้องที่ตั้งค่าไว้ (ค่า Default คือ 45)
+                total_rooms_count = SCHOOL_TOTAL_ROOMS
                 
                 col1, col2, col3 = st.columns(3)
-                col1.metric("🏫 จำนวนห้องเรียนทั้งหมด", f"{SCHOOL_TOTAL_ROOMS} ห้อง")
+                col1.metric("🏫 จำนวนห้องเรียนทั้งหมด", f"{total_rooms_count} ห้อง")
                 col2.metric("✅ ตรวจและส่งครบทุกรอบ", f"{len(submitted_all_weeks_rooms)} ห้อง")
-                col3.metric("❌ ส่งผลตรวจไม่ครบ/ขาดส่ง", f"{missing_count} ห้อง")
+                col3.metric("❌ ส่งผลตรวจไม่ครบ/ขาดส่ง", f"{len(missing_any_week_rooms)} ห้อง")
                 
-                # 📌 กล่องจิ้มดูรายละเอียดที่เจ้านายขอค่ะ
                 c_exp1, c_exp2, c_exp3 = st.columns(3)
                 with c_exp1:
                     with st.expander("👉 รายชื่อนักเรียน (จากไฟล์ทะเบียน)"):
                         if not registry_students_df.empty:
-                            st.dataframe(registry_students_df, use_container_width=True, hide_index=True)
+                            render_student_table(registry_students_df)
                         else:
                             st.info("อัปโหลดไฟล์จากฝ่ายทะเบียนเพื่อดูรายชื่อค่ะ")
                 with c_exp2:
@@ -413,48 +448,67 @@ with tab2:
                 sc2.metric("👦 ชายที่ได้รับการประเมิน", f"{male_checked} คน")
                 sc3.metric("👧 หญิงที่ได้รับการประเมิน", f"{female_checked} คน")
                 
+                sc_exp1, sc_exp2, sc_exp3 = st.columns(3)
+                with sc_exp1:
+                    with st.expander("👉 รายชื่อนักเรียนที่ได้รับการประเมิน"):
+                        render_student_table(checked_overall_df)
+                
                 st.markdown("##### 📌 สรุปเกณฑ์การพัฒนาล่าสุดของนักเรียน")
-                excellent = len(dashboard_df[dashboard_df["การพัฒนา (สรุปผล)"] == "⭐⭐⭐ ดีเยี่ยม"])
-                good = len(dashboard_df[dashboard_df["การพัฒนา (สรุปผล)"] == "⭐⭐ ดี"])
-                improved = len(dashboard_df[dashboard_df["การพัฒนา (สรุปผล)"] == "🟢 ดีขึ้น"])
-                needs_improvement = len(dashboard_df[dashboard_df["การพัฒนา (สรุปผล)"] == "🔴 ต้องปรับปรุง"])
-                resigned_count = len(dashboard_df[dashboard_df["การพัฒนา (สรุปผล)"] == "⚫ พ้นสภาพ/ลาออก"])
+                df_ex = dashboard_df[dashboard_df["การพัฒนา (สรุปผล)"] == "⭐⭐⭐ ดีเยี่ยม"]
+                df_gd = dashboard_df[dashboard_df["การพัฒนา (สรุปผล)"] == "⭐⭐ ดี"]
+                df_im = dashboard_df[dashboard_df["การพัฒนา (สรุปผล)"] == "🟢 ดีขึ้น"]
+                df_nd = dashboard_df[dashboard_df["การพัฒนา (สรุปผล)"] == "🔴 ต้องปรับปรุง"]
+                df_re = dashboard_df[dashboard_df["การพัฒนา (สรุปผล)"] == "⚫ พ้นสภาพ/ลาออก"]
                 
                 rc1, rc2, rc3, rc4, rc5 = st.columns(5)
-                rc1.metric("⭐⭐⭐ ดีเยี่ยม", f"{excellent} คน")
-                rc2.metric("⭐⭐ ดี", f"{good} คน")
-                rc3.metric("🟢 ดีขึ้น", f"{improved} คน")
-                rc4.metric("🔴 ต้องปรับปรุง", f"{needs_improvement} คน")
-                rc5.metric("⚫ พ้นสภาพ/ลาออก", f"{resigned_count} คน")
+                rc1.metric("⭐⭐⭐ ดีเยี่ยม", f"{len(df_ex)} คน")
+                rc2.metric("⭐⭐ ดี", f"{len(df_gd)} คน")
+                rc3.metric("🟢 ดีขึ้น", f"{len(df_im)} คน")
+                rc4.metric("🔴 ต้องปรับปรุง", f"{len(df_nd)} คน")
+                rc5.metric("⚫ พ้นสภาพ/ลาออก", f"{len(df_re)} คน")
+                
+                rc_exp1, rc_exp2, rc_exp3, rc_exp4, rc_exp5 = st.columns(5)
+                with rc_exp1:
+                    with st.expander("👉 ดูรายชื่อ"): render_student_table(df_ex)
+                with rc_exp2:
+                    with st.expander("👉 ดูรายชื่อ"): render_student_table(df_gd)
+                with rc_exp3:
+                    with st.expander("👉 ดูรายชื่อ"): render_student_table(df_im)
+                with rc_exp4:
+                    with st.expander("👉 ดูรายชื่อ"): render_student_table(df_nd)
+                with rc_exp5:
+                    with st.expander("👉 ดูรายชื่อ"): render_student_table(df_re)
                 
             else:
                 selected_week = selected_option
                 st.markdown(f"### 👩‍🏫 การปฏิบัติงานของครูประจำชั้น (ประจำ{selected_week})")
-                all_present_rooms = dashboard_df['ห้องเรียน'].unique()
                 submitted_rooms = []
                 missing_rooms = []
                 
-                for room in all_present_rooms:
+                for room in final_all_rooms:
                     room_data = dashboard_df[dashboard_df['ห้องเรียน'] == room]
+                    if room_data.empty:
+                        missing_rooms.append(room)
+                        continue
+                        
                     has_evaluated = room_data[selected_week].astype(str).str.contains(r"ผ่าน|ไม่ผ่าน").any()
                     if not has_evaluated:
                         missing_rooms.append(room)
                     else:
                         submitted_rooms.append(room)
                 
-                missing_count = SCHOOL_TOTAL_ROOMS - len(submitted_rooms)
+                total_rooms_count = SCHOOL_TOTAL_ROOMS
                 
                 col1, col2, col3 = st.columns(3)
-                col1.metric("🏫 จำนวนห้องเรียนทั้งหมด", f"{SCHOOL_TOTAL_ROOMS} ห้อง")
+                col1.metric("🏫 จำนวนห้องเรียนทั้งหมด", f"{total_rooms_count} ห้อง")
                 col2.metric("✅ ตรวจและส่งผลแล้ว", f"{len(submitted_rooms)} ห้อง")
-                col3.metric("❌ ยังไม่ส่งผลตรวจ", f"{missing_count} ห้อง")
+                col3.metric("❌ ยังไม่ส่งผลตรวจ", f"{len(missing_rooms)} ห้อง")
                 
-                # 📌 กล่องจิ้มดูรายละเอียด (รายสัปดาห์)
                 c_exp1, c_exp2, c_exp3 = st.columns(3)
                 with c_exp1:
                     with st.expander("👉 รายชื่อนักเรียน (จากไฟล์ทะเบียน)"):
                         if not registry_students_df.empty:
-                            st.dataframe(registry_students_df, use_container_width=True, hide_index=True)
+                            render_student_table(registry_students_df)
                         else:
                             st.info("อัปโหลดไฟล์จากฝ่ายทะเบียนเพื่อดูรายชื่อค่ะ")
                 with c_exp2:
@@ -468,14 +522,13 @@ with tab2:
                 st.markdown(f"### 📊 ภาพรวมสถิตินักเรียน (ประจำ{selected_week})")
                 
                 checked_df = dashboard_df[dashboard_df[selected_week].astype(str).str.contains(r"ผ่าน|ไม่ผ่าน")]
-                total_checked = len(checked_df)
-                male_checked = len(checked_df[checked_df['เพศ'] == 'ชาย'])
-                female_checked = len(checked_df[checked_df['เพศ'] == 'หญิง'])
+                df_pass = checked_df[checked_df[selected_week] == "ผ่าน"]
+                df_fail = checked_df[checked_df[selected_week].astype(str).str.contains("ไม่ผ่าน")]
+                df_resigned = dashboard_df[dashboard_df[selected_week] == "⚪ ลาออก"]
+                df_missing = dashboard_df[~dashboard_df.index.isin(checked_df.index) & ~dashboard_df.index.isin(df_resigned.index)]
                 
-                passed = len(checked_df[checked_df[selected_week] == "ผ่าน"])
-                failed = len(checked_df[checked_df[selected_week].astype(str).str.contains("ไม่ผ่าน")])
-                resigned = len(dashboard_df[dashboard_df[selected_week] == "⚪ ลาออก"])
-                missing_students = SCHOOL_TOTAL_STUDENTS - total_checked
+                total_checked = len(checked_df)
+                missing_students_count = SCHOOL_TOTAL_STUDENTS - total_checked
                 
                 c1, c2, c3 = st.columns(3)
                 c1.metric("👥 นักเรียนสถานะปัจจุบัน", f"{SCHOOL_TOTAL_STUDENTS} คน")
@@ -484,10 +537,20 @@ with tab2:
                 
                 st.markdown("##### 📌 ผลการตรวจระเบียบรายสัปดาห์")
                 sc1, sc2, sc3, sc4 = st.columns(4)
-                sc1.metric("🟢 ผ่านระเบียบ", f"{passed} คน")
-                sc2.metric("🔴 ไม่ผ่านระเบียบ", f"{failed} คน")
-                sc3.metric("⚫ ลาออก", f"{resigned} คน")
-                sc4.metric("⚪ ขาด/ยังไม่ได้ประเมิน", f"{missing_students} คน")
+                sc1.metric("🟢 ผ่านระเบียบ", f"{len(df_pass)} คน")
+                sc2.metric("🔴 ไม่ผ่านระเบียบ", f"{len(df_fail)} คน")
+                sc3.metric("⚫ ลาออก", f"{len(df_resigned)} คน")
+                sc4.metric("⚪ ขาด/ยังไม่ได้ประเมิน", f"{missing_students_count} คน")
+                
+                sc_exp1, sc_exp2, sc_exp3, sc_exp4 = st.columns(4)
+                with sc_exp1:
+                    with st.expander("👉 ดูรายชื่อ"): render_student_table(df_pass)
+                with sc_exp2:
+                    with st.expander("👉 ดูรายชื่อ"): render_student_table(df_fail)
+                with sc_exp3:
+                    with st.expander("👉 ดูรายชื่อ"): render_student_table(df_resigned)
+                with sc_exp4:
+                    with st.expander("👉 ดูรายชื่อ"): render_student_table(df_missing)
 
         else:
             st.info("ยังไม่มีคอลัมน์ข้อมูลสัปดาห์การตรวจในระบบค่ะ")
