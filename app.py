@@ -64,23 +64,33 @@ def sort_rooms(room_str):
         pass
     return 9999
 
-# --- ฟังก์ชันเชื่อมต่อ Google Sheets แบบตรงๆ (เพิ่มกุญแจ VIP ครบชุด!) ---
+# --- ฟังก์ชันเชื่อมต่อ Google Sheets แบบบังคับจัดเรียงกุญแจใหม่! ---
+@st.cache_resource(ttl=600)
 def init_gsheets():
     try:
-        secret_dict = dict(st.secrets["connections"]["gsheets"])
-        # 📌 เติม scope ของ Drive เข้าไป เพื่อให้หุ่นยนต์มองเห็นไฟล์ค่ะ!
+        sec = st.secrets["connections"]["gsheets"]
+        # 📌 จับกุญแจมาเรียงใหม่ทีละบรรทัด และบังคับแปลง \n ให้ถูกต้อง เพื่อป้องกันระบบอ่านกุญแจพลาดค่ะ!
+        creds_dict = {
+            "type": sec["type"],
+            "project_id": sec["project_id"],
+            "private_key_id": sec["private_key_id"],
+            "private_key": sec["private_key"].replace('\\n', '\n'), 
+            "client_email": sec["client_email"],
+            "client_id": sec["client_id"],
+            "auth_uri": sec["auth_uri"],
+            "token_uri": sec["token_uri"],
+            "auth_provider_x509_cert_url": sec["auth_provider_x509_cert_url"],
+            "client_x509_cert_url": sec["client_x509_cert_url"]
+        }
         creds = Credentials.from_service_account_info(
-            secret_dict, 
-            scopes=[
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive"
-            ]
+            creds_dict, 
+            scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         )
         client = gspread.authorize(creds)
         sheet = client.open_by_key("1GfNCVEsKhSVq6QAXfnkMWHh_lMxsK5KFAeoUcVJhVPY")
         return sheet.worksheet("Database")
     except Exception as e:
-        st.error(f"⚠️ เกิดข้อผิดพลาดในการเชื่อมต่อ (init): {e}")
+        st.error(f"⚠️ เกิดข้อผิดพลาดในการตรวจสอบกุญแจลับ (Secrets): {e}")
         return None
 
 # 4. โหลดข้อมูลเดิมจาก Google Sheets
@@ -239,16 +249,16 @@ if uploaded_files:
                 with st.spinner("⏳ เจมี่กำลังวิ่งเอาข้อมูลไปเก็บที่ Google Sheets ให้เจ้านายค่ะ..."):
                     if worksheet is not None:
                         try:
-                            # 📌 แปลงข้อมูลทั้งหมดเป็นข้อความให้ชัวร์ที่สุด ป้องกัน Error ชนิดข้อมูลค่ะ
                             safe_df = final_df_to_save.astype(str)
                             worksheet.clear()
                             worksheet.update([safe_df.columns.values.tolist()] + safe_df.values.tolist())
-                            st.success("🎉 เซฟลงฐานข้อมูลสำเร็จเรียบร้อยแล้วค่ะเจ้านาย! (สามารถปิดหน้าต่างหรือกดกากบาทลบไฟล์ที่อัปโหลดออกได้เลยค่ะ)")
+                            st.success("🎉 เซฟลงฐานข้อมูลสำเร็จเรียบร้อยแล้วค่ะเจ้านาย!")
                             st.balloons()
+                            st.cache_data.clear() 
                         except Exception as e:
                             st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก: {e}")
                     else:
-                        st.error("❌ ไม่สามารถบันทึกได้ เนื่องจากเชื่อมต่อ Google Sheets ไม่สำเร็จค่ะ")
+                        st.error("❌ ไม่สามารถบันทึกได้ เนื่องจากเชื่อมต่อ Google Sheets ไม่สำเร็จค่ะ (กุญแจอาจมีปัญหา)")
 
 elif not existing_df.empty:
     st.info("📊 นี่คือข้อมูลล่าสุดจากฐานข้อมูล Google Sheets ของเราค่ะ")
