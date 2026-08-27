@@ -5,9 +5,6 @@ from datetime import datetime
 from io import StringIO
 from streamlit_gsheets import GSheetsConnection
 
-# 📌 ลิงก์ Google Sheets ของเจ้านาย
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1GfNCVEsKhSVq6QAXfnkMWHh_lMxsK5KFAeoUcVJhVPY/edit"
-
 # 1. ตั้งค่าหน้าเว็บ
 st.set_page_config(page_title="ระบบติดตามวินัยนักเรียน", page_icon="📊", layout="wide")
 
@@ -67,9 +64,10 @@ def sort_rooms(room_str):
     return 9999
 
 # 4. โหลดข้อมูลเดิมจาก Google Sheets
+# 📌 ระบบจะไปดึงลิงก์จาก Secrets อัตโนมัติเลยค่ะ
 conn = st.connection("gsheets", type=GSheetsConnection)
 try:
-    existing_df = conn.read(spreadsheet=SHEET_URL, worksheet="Database")
+    existing_df = conn.read(worksheet="Database")
     if not existing_df.empty and 'รหัสนักเรียน' in existing_df.columns:
         existing_df = existing_df.dropna(subset=['รหัสนักเรียน'])
         existing_df['รหัสนักเรียน'] = existing_df['รหัสนักเรียน'].astype(str).str.replace(r'\.0$', '', regex=True)
@@ -216,9 +214,9 @@ if uploaded_files:
             if st.button("💾 บันทึกข้อมูลทั้งหมดลง Google Sheets", type="primary", use_container_width=True):
                 with st.spinner("⏳ เจมี่กำลังวิ่งเอาข้อมูลไปเก็บที่ Google Sheets ให้เจ้านายค่ะ..."):
                     try:
-                        # 📌 เจมี่ใส่ spreadsheet=SHEET_URL แนบแผนที่ให้มันครบทุกจุดแล้วค่ะ!
-                        conn.clear(spreadsheet=SHEET_URL, worksheet="Database")
-                        conn.update(spreadsheet=SHEET_URL, worksheet="Database", data=final_df_to_save)
+                        # 📌 สั่งเคลียร์และอัปเดตแบบคลีนๆ ไม่ง้อ URL ในโค้ดแล้วค่ะ!
+                        conn.clear(worksheet="Database")
+                        conn.update(worksheet="Database", data=final_df_to_save)
                         st.success("🎉 เซฟลงฐานข้อมูลสำเร็จเรียบร้อยแล้วค่ะเจ้านาย! (สามารถปิดหน้าต่างหรือกดกากบาทลบไฟล์ที่อัปโหลดออกได้เลยค่ะ)")
                         st.balloons()
                     except Exception as e:
