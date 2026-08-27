@@ -195,12 +195,13 @@ with tab1:
                                 break
                         
                         if not matched_week_name:
+                            # 📌 ปรับแก้ข้อความในปุ่มตัวเลือกให้ชัดเจนขึ้น
                             user_choice = st.radio(
                                 f"ต้องการดำเนินการอย่างไรกับไฟล์ {file.name}?",
-                                ["❌ ยกเลิก", "✅ ดำเนินการต่อ"],
+                                ["❌ ยกเลิก (ไม่ใช้ไฟล์นี้)", "✅ ดำเนินการต่อ (ใช้ไฟล์นี้เป็นข้อมูล)"],
                                 key=f"choice_{file.name}", horizontal=True
                             )
-                            if user_choice == "❌ ยกเลิก": skip_this_file = True
+                            if user_choice == "❌ ยกเลิก (ไม่ใช้ไฟล์นี้)": skip_this_file = True
                             else: matched_week_name = weeks_config[0]['name']
                                 
                     if skip_this_file: continue
@@ -388,7 +389,6 @@ with tab2:
                     if latest_week in missed_weeks:
                         missing_latest.append(room)
                 
-                # 📌 ใช้ gap="large" เพิ่มช่องว่างระหว่างคอลัมน์
                 col1, col2, col3 = st.columns(3, gap="large")
                 with col1:
                     st.metric("🏫 จำนวนห้องเรียนทั้งหมด", f"{SCHOOL_TOTAL_ROOMS} ห้อง")
@@ -456,7 +456,6 @@ with tab2:
                 df_nd = dashboard_df[dashboard_df["การพัฒนา (สรุปผล)"] == "🔴 ต้องปรับปรุง"]
                 df_re = dashboard_df[dashboard_df["การพัฒนา (สรุปผล)"] == "⚫ พ้นสภาพ/ลาออก"]
                 
-                # 📌 ใช้ gap="medium" เพื่อให้ 5 คอลัมน์ดูไม่เบียดกันเกินไป
                 rc1, rc2, rc3, rc4, rc5 = st.columns(5, gap="medium")
                 with rc1:
                     st.metric("⭐⭐⭐ ดีเยี่ยม", f"{len(df_ex)} คน")
