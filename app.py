@@ -5,7 +5,7 @@ from datetime import datetime
 from io import StringIO
 from streamlit_gsheets import GSheetsConnection
 
-# 📌 ต้องเป็นแบบนี้นะคะ (ระวังอย่าให้มีช่องว่างหน้า-หลังเครื่องหมายคำพูด)
+# 📌 ลิงก์ Google Sheets ของเจ้านาย
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1GfNCVEsKhSVq6QAXfnkMWHh_lMxsK5KFAeoUcVJhVPY/edit"
 
 # 1. ตั้งค่าหน้าเว็บ
@@ -26,7 +26,6 @@ with st.sidebar:
     st.header("📅 1. ตั้งค่ารอบการตรวจ")
     num_weeks = st.number_input("จำนวนสัปดาห์ที่ต้องการตั้งค่า", min_value=1, max_value=10, value=1)
     
-    # ฟังก์ชันเวทมนตร์สำหรับซิงค์วันที่และชื่อคอลัมน์เข้าด้วยกัน
     def update_col_name(idx):
         d = st.session_state[f"sel_date_{idx}"]
         st.session_state[f"name_{idx}"] = f"สัปดาห์ที่ {d.strftime('%d/%m/')}{d.year + 543}"
@@ -34,16 +33,12 @@ with st.sidebar:
     weeks_config = []
     for i in range(num_weeks):
         st.markdown(f"**📌 สัปดาห์ที่ {i+1}**")
-        
-        # ปฏิทินเลือกวันที่ (ผูกระบบอัปเดตชื่ออัตโนมัติเมื่อมีการเปลี่ยนแปลง)
         sel_date = st.date_input(
             f"1. จิ้มเลือกวันที่ตรวจ", 
             key=f"sel_date_{i}", 
             on_change=update_col_name, 
             args=(i,)
         )
-        
-        # กำหนดค่าเริ่มต้นให้ชื่อคอลัมน์
         if f"name_{i}" not in st.session_state:
             st.session_state[f"name_{i}"] = f"สัปดาห์ที่ {sel_date.strftime('%d/%m/')}{sel_date.year + 543}"
             
@@ -221,8 +216,9 @@ if uploaded_files:
             if st.button("💾 บันทึกข้อมูลทั้งหมดลง Google Sheets", type="primary", use_container_width=True):
                 with st.spinner("⏳ เจมี่กำลังวิ่งเอาข้อมูลไปเก็บที่ Google Sheets ให้เจ้านายค่ะ..."):
                     try:
-                        conn.clear(worksheet="Database")
-                        conn.update(worksheet="Database", data=final_df_to_save)
+                        # 📌 เจมี่ใส่ spreadsheet=SHEET_URL แนบแผนที่ให้มันครบทุกจุดแล้วค่ะ!
+                        conn.clear(spreadsheet=SHEET_URL, worksheet="Database")
+                        conn.update(spreadsheet=SHEET_URL, worksheet="Database", data=final_df_to_save)
                         st.success("🎉 เซฟลงฐานข้อมูลสำเร็จเรียบร้อยแล้วค่ะเจ้านาย! (สามารถปิดหน้าต่างหรือกดกากบาทลบไฟล์ที่อัปโหลดออกได้เลยค่ะ)")
                         st.balloons()
                     except Exception as e:
