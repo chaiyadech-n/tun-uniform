@@ -3,7 +3,8 @@ import pandas as pd
 import re
 from datetime import datetime
 from io import StringIO
-from streamlit_gsheets import GSheetsConnection
+import gspread
+from google.oauth2.service_account import Credentials
 
 # 1. ตั้งค่าหน้าเว็บ
 st.set_page_config(page_title="ระบบติดตามวินัยนักเรียน", page_icon="📊", layout="wide")
@@ -63,19 +64,37 @@ def sort_rooms(room_str):
         pass
     return 9999
 
-# 4. โหลดข้อมูลเดิมจาก Google Sheets
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- ระบบเชื่อมต่อแบบใหม่ (ชัวร์ 100%) ---
+@st.cache_resource(ttl=600)
+def init_gsheets():
+    # 📌 ดึงกุญแจวิเศษจาก Secrets
+    secret_dict = dict(st.secrets["connections"]["gsheets"])
+    # 📌 แปลงกุญแจให้เป็นบัตรผ่าน
+    creds = Credentials.from_service_account_info(
+        secret_dict, 
+        scopes=["https://www.googleapis.com/auth/spreadsheets"]
+    )
+    # 📌 เสียบบัตรเข้าสู่ระบบ
+    client = gspread.authorize(creds)
+    # 📌 เจาะจงเข้าไฟล์ตามลิงก์นี้เป๊ะๆ!
+    sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1GfNCVEsKhSVq6QAXfnkMWHh_lMxsK5KFAeoUcVJhVPY/edit")
+    return sheet.worksheet("Database")
+
 try:
-    # 📌 เจมี่เติม ttl=0 เข้าไป เพื่อสั่งให้มันอ่านข้อมูลใหม่สดๆ เสมอ และห้ามจำอะไรค้างไว้จนเอ๋อค่ะ!
-    existing_df = conn.read(worksheet="Database", ttl=0)
-    if not existing_df.empty and 'รหัสนักเรียน' in existing_df.columns:
-        existing_df = existing_df.dropna(subset=['รหัสนักเรียน'])
-        existing_df['รหัสนักเรียน'] = existing_df['รหัสนักเรียน'].astype(str).str.replace(r'\.0$', '', regex=True)
-        existing_df['ลำดับ'] = existing_df['ลำดับ'].astype(int, errors='ignore')
+    worksheet = init_gsheets()
+    existing_data = worksheet.get_all_records()
+    if existing_data:
+        existing_df = pd.DataFrame(existing_data)
+        if 'รหัสนักเรียน' in existing_df.columns:
+            existing_df = existing_df.dropna(subset=['รหัสนักเรียน'])
+            existing_df['รหัสนักเรียน'] = existing_df['รหัสนักเรียน'].astype(str).str.replace(r'\.0$', '', regex=True)
+            existing_df['ลำดับ'] = existing_df['ลำดับ'].astype(int, errors='ignore')
+        else:
+            existing_df = pd.DataFrame()
     else:
         existing_df = pd.DataFrame()
 except Exception as e:
-    st.error(f"⚠️ ตรวจพบปัญหาการเชื่อมต่อฐานข้อมูล (โหลดข้อมูล): {e}")
+    st.error(f"⚠️ ตรวจพบปัญหาการเชื่อมต่อฐานข้อมูล: {e}")
     existing_df = pd.DataFrame()
 
 # 5. ประมวลผลและสร้างตาราง
@@ -215,8 +234,9 @@ if uploaded_files:
             if st.button("💾 บันทึกข้อมูลทั้งหมดลง Google Sheets", type="primary", use_container_width=True):
                 with st.spinner("⏳ เจมี่กำลังวิ่งเอาข้อมูลไปเก็บที่ Google Sheets ให้เจ้านายค่ะ..."):
                     try:
-                        # 📌 ลบการอ้างอิงลิงก์ตอนเซฟออกด้วยค่ะ!
-                        conn.update(worksheet="Database", data=final_df_to_save)
+                        # 📌 สั่งเคลียร์แล้วเขียนทับใหม่ด้วย gspread เพียวๆ ไม่มีหลงทางแน่นอนค่ะ!
+                        worksheet.clear()
+                        worksheet.update([final_df_to_save.columns.values.tolist()] + final_df_to_save.values.tolist())
                         st.success("🎉 เซฟลงฐานข้อมูลสำเร็จเรียบร้อยแล้วค่ะเจ้านาย! (สามารถปิดหน้าต่างหรือกดกากบาทลบไฟล์ที่อัปโหลดออกได้เลยค่ะ)")
                         st.balloons()
                     except Exception as e:
