@@ -79,7 +79,6 @@ with tab1:
                     if sheet in xls.sheet_names:
                         df_sheet = pd.read_excel(xls, sheet_name=sheet)
                         for i, row in df_sheet.iterrows():
-                            # 📌 แปลงชื่อห้องให้เป็นมาตรฐาน "ม. X/Y" 
                             val = str(row.iloc[1])
                             match = re.search(r'ม\.?\s*(\d)[\./](\d+)', val)
                             if match:
@@ -216,7 +215,6 @@ with tab1:
                             for idx, row in df.iterrows():
                                 if str(row.get('ลำดับ', '')).strip().isdigit():
                                     raw_room = str(row.get('ห้องเรียน', '')).strip()
-                                    # 📌 แปลงชื่อห้องให้เป็นมาตรฐาน "ม. X/Y" เช่นเดียวกัน
                                     match = re.search(r'ม\.?\s*(\d)[\./](\d+)', raw_room)
                                     room = f"ม. {match.group(1)}/{match.group(2)}" if match else raw_room
                                     ALL_SCHOOL_ROOMS.add(room)
@@ -331,7 +329,6 @@ with tab2:
         if name_str.startswith(('นางสาว', 'ด.ญ.', 'น.ส.', 'เด็กหญิง')): return 'หญิง'
         return 'ไม่ระบุ'
         
-    # 📌 ฟังก์ชันเสกตารางสวยๆ เปลี่ยน "ลำดับ" เป็น "เลขที่" ตามใจเจ้านายค่ะ!
     def render_student_table(df_to_render):
         if not df_to_render.empty:
             df_show = df_to_render.copy()
@@ -345,6 +342,9 @@ with tab2:
 
     if not dashboard_df.empty:
         dashboard_df['เพศ'] = dashboard_df['ชื่อนักเรียน'].apply(get_gender)
+        if not registry_students_df.empty:
+            registry_students_df['เพศ'] = registry_students_df['ชื่อ-สกุล'].apply(get_gender)
+            
         week_cols = [c for c in dashboard_df.columns if "สัปดาห์ที่" in c]
         
         if week_cols:
@@ -352,9 +352,9 @@ with tab2:
             selected_option = st.selectbox("📅 เลือกคอลัมน์สัปดาห์ที่ต้องการดูสรุป", options, index=0)
             st.markdown("---")
             
-            # 📌 เคลียร์ปัญหาห้องซ้ำซ้อน ด้วยการดึงชื่อห้องทั้งหมดในระบบ
             all_present_rooms = set(dashboard_df['ห้องเรียน'].unique())
-            final_all_rooms = sorted(list(all_present_rooms.union(ALL_SCHOOL_ROOMS)), key=sort_rooms)
+            formatted_registry_rooms = {r.replace("ม.", "ม. ").replace("  ", " ") for r in ALL_SCHOOL_ROOMS}
+            final_all_rooms = sorted(list(all_present_rooms.union(formatted_registry_rooms)), key=sort_rooms)
             
             if selected_option == "🌟 สรุปภาพรวมทั้งหมด":
                 st.markdown(f"### 👩‍🏫 สถิติการส่งผลประเมินของครูประจำชั้น (สะสมทั้งหมด)")
@@ -388,19 +388,19 @@ with tab2:
                     if latest_week in missed_weeks:
                         missing_latest.append(room)
                 
-                col1, col2, col3 = st.columns(3)
-                col1.metric("🏫 จำนวนห้องเรียนทั้งหมด", f"{SCHOOL_TOTAL_ROOMS} ห้อง")
-                col2.metric("🏆 ส่งครบ 100% ทุกรอบ", f"{len(submitted_perfect)} ห้อง")
-                col3.metric("🚨 ขาดส่ง (สัปดาห์ล่าสุด)", f"{len(missing_latest)} ห้อง")
-                
-                c_exp1, c_exp2, c_exp3 = st.columns(3)
-                with c_exp1:
+                # 📌 ใช้ gap="large" เพิ่มช่องว่างระหว่างคอลัมน์
+                col1, col2, col3 = st.columns(3, gap="large")
+                with col1:
+                    st.metric("🏫 จำนวนห้องเรียนทั้งหมด", f"{SCHOOL_TOTAL_ROOMS} ห้อง")
+                    with st.expander("👉 รายชื่อนักเรียนทั้งหมด (จากทะเบียน)"):
+                        if not registry_students_df.empty: render_student_table(registry_students_df)
+                        else: st.info("อัปโหลดไฟล์จากฝ่ายทะเบียนเพื่อดูรายชื่อค่ะ")
+                with col2:
+                    st.metric("🏆 ส่งครบ 100% ทุกรอบ", f"{len(submitted_perfect)} ห้อง")
                     with st.expander("👉 ดูห้องที่ส่งครบ 100%"):
                         st.write(", ".join(submitted_perfect) if submitted_perfect else "-")
-                with c_exp2:
-                    with st.expander("👉 ดูห้องที่ขาดส่ง (สัปดาห์ล่าสุด)"):
-                        st.write(", ".join(missing_latest) if missing_latest else "-")
-                with c_exp3:
+                with col3:
+                    st.metric("🚨 ขาดส่ง (สัปดาห์ล่าสุด)", f"{len(missing_latest)} ห้อง")
                     with st.expander("👉 ประวัติขาดส่งสะสม (ทุกห้อง)"):
                         if room_missing_stats:
                             df_miss = pd.DataFrame(room_missing_stats).sort_values(by="ขาดส่ง (ครั้ง)", ascending=False)
@@ -423,20 +423,31 @@ with tab2:
                 male_checked = len(checked_overall_df[checked_overall_df['เพศ'] == 'ชาย'])
                 female_checked = len(checked_overall_df[checked_overall_df['เพศ'] == 'หญิง'])
                 
-                c1, c2, c3 = st.columns(3)
-                c1.metric("👥 นักเรียนสถานะปัจจุบัน (หักลาออก)", f"{SCHOOL_TOTAL_STUDENTS} คน")
-                c2.metric("👦 ชาย", f"{SCHOOL_TOTAL_MALE} คน")
-                c3.metric("👧 หญิง", f"{SCHOOL_TOTAL_FEMALE} คน")
+                df_reg_male = registry_students_df[registry_students_df['เพศ'] == 'ชาย'] if not registry_students_df.empty else pd.DataFrame()
+                df_reg_female = registry_students_df[registry_students_df['เพศ'] == 'หญิง'] if not registry_students_df.empty else pd.DataFrame()
+                
+                c1, c2, c3 = st.columns(3, gap="large")
+                with c1:
+                    st.metric("👥 นักเรียนสถานะปัจจุบัน (หักลาออก)", f"{SCHOOL_TOTAL_STUDENTS} คน")
+                    with st.expander("👉 ดูรายชื่อทั้งหมด"): render_student_table(registry_students_df)
+                with c2:
+                    st.metric("👦 ชาย", f"{SCHOOL_TOTAL_MALE} คน")
+                    with st.expander("👉 ดูรายชื่อ (ชาย)"): render_student_table(df_reg_male)
+                with c3:
+                    st.metric("👧 หญิง", f"{SCHOOL_TOTAL_FEMALE} คน")
+                    with st.expander("👉 ดูรายชื่อ (หญิง)"): render_student_table(df_reg_female)
                 
                 st.markdown("##### 📌 จำนวนนักเรียนที่ได้รับการประเมินแล้ว (อย่างน้อย 1 ครั้ง)")
-                sc1, sc2, sc3 = st.columns(3)
-                sc1.metric("✅ รวมได้รับการประเมิน", f"{total_checked} คน")
-                sc2.metric("👦 ชายที่ได้รับการประเมิน", f"{male_checked} คน")
-                sc3.metric("👧 หญิงที่ได้รับการประเมิน", f"{female_checked} คน")
-                
-                sc_exp1, sc_exp2, sc_exp3 = st.columns(3)
-                with sc_exp1:
-                    with st.expander("👉 รายชื่อนักเรียน (ประเมินแล้ว)"): render_student_table(checked_overall_df)
+                sc1, sc2, sc3 = st.columns(3, gap="large")
+                with sc1:
+                    st.metric("✅ รวมได้รับการประเมิน", f"{total_checked} คน")
+                    with st.expander("👉 ดูรายชื่อ"): render_student_table(checked_overall_df)
+                with sc2:
+                    st.metric("👦 ชายที่ได้รับการประเมิน", f"{male_checked} คน")
+                    with st.expander("👉 ดูรายชื่อ (ชาย)"): render_student_table(checked_overall_df[checked_overall_df['เพศ'] == 'ชาย'])
+                with sc3:
+                    st.metric("👧 หญิงที่ได้รับการประเมิน", f"{female_checked} คน")
+                    with st.expander("👉 ดูรายชื่อ (หญิง)"): render_student_table(checked_overall_df[checked_overall_df['เพศ'] == 'หญิง'])
                 
                 st.markdown("##### 📌 สรุปเกณฑ์การพัฒนาล่าสุดของนักเรียน")
                 df_ex = dashboard_df[dashboard_df["การพัฒนา (สรุปผล)"] == "⭐⭐⭐ ดีเยี่ยม"]
@@ -445,23 +456,22 @@ with tab2:
                 df_nd = dashboard_df[dashboard_df["การพัฒนา (สรุปผล)"] == "🔴 ต้องปรับปรุง"]
                 df_re = dashboard_df[dashboard_df["การพัฒนา (สรุปผล)"] == "⚫ พ้นสภาพ/ลาออก"]
                 
-                rc1, rc2, rc3, rc4, rc5 = st.columns(5)
-                rc1.metric("⭐⭐⭐ ดีเยี่ยม", f"{len(df_ex)} คน")
-                rc2.metric("⭐⭐ ดี", f"{len(df_gd)} คน")
-                rc3.metric("🟢 ดีขึ้น", f"{len(df_im)} คน")
-                rc4.metric("🔴 ต้องปรับปรุง", f"{len(df_nd)} คน")
-                rc5.metric("⚫ พ้นสภาพ/ลาออก", f"{len(df_re)} คน")
-                
-                rc_exp1, rc_exp2, rc_exp3, rc_exp4, rc_exp5 = st.columns(5)
-                with rc_exp1:
+                # 📌 ใช้ gap="medium" เพื่อให้ 5 คอลัมน์ดูไม่เบียดกันเกินไป
+                rc1, rc2, rc3, rc4, rc5 = st.columns(5, gap="medium")
+                with rc1:
+                    st.metric("⭐⭐⭐ ดีเยี่ยม", f"{len(df_ex)} คน")
                     with st.expander("👉 ดูรายชื่อ"): render_student_table(df_ex)
-                with rc_exp2:
+                with rc2:
+                    st.metric("⭐⭐ ดี", f"{len(df_gd)} คน")
                     with st.expander("👉 ดูรายชื่อ"): render_student_table(df_gd)
-                with rc_exp3:
+                with rc3:
+                    st.metric("🟢 ดีขึ้น", f"{len(df_im)} คน")
                     with st.expander("👉 ดูรายชื่อ"): render_student_table(df_im)
-                with rc_exp4:
+                with rc4:
+                    st.metric("🔴 ต้องปรับปรุง", f"{len(df_nd)} คน")
                     with st.expander("👉 ดูรายชื่อ"): render_student_table(df_nd)
-                with rc_exp5:
+                with rc5:
+                    st.metric("⚫ พ้นสภาพ/ลาออก", f"{len(df_re)} คน")
                     with st.expander("👉 ดูรายชื่อ"): render_student_table(df_re)
                 
             else:
@@ -482,19 +492,17 @@ with tab2:
                     else:
                         submitted_rooms.append(room)
                 
-                col1, col2, col3 = st.columns(3)
-                col1.metric("🏫 จำนวนห้องเรียนทั้งหมด", f"{SCHOOL_TOTAL_ROOMS} ห้อง")
-                col2.metric("✅ ตรวจและส่งผลแล้ว", f"{len(submitted_rooms)} ห้อง")
-                col3.metric("❌ ยังไม่ส่งผลตรวจ", f"{len(missing_rooms)} ห้อง")
-                
-                c_exp1, c_exp2, c_exp3 = st.columns(3)
-                with c_exp1:
+                col1, col2, col3 = st.columns(3, gap="large")
+                with col1:
+                    st.metric("🏫 จำนวนห้องเรียนทั้งหมด", f"{SCHOOL_TOTAL_ROOMS} ห้อง")
                     with st.expander("👉 รายชื่อทั้งหมด (จากทะเบียน)"):
                         if not registry_students_df.empty: render_student_table(registry_students_df)
                         else: st.info("อัปโหลดไฟล์จากฝ่ายทะเบียนเพื่อดูรายชื่อค่ะ")
-                with c_exp2:
+                with col2:
+                    st.metric("✅ ตรวจและส่งผลแล้ว", f"{len(submitted_rooms)} ห้อง")
                     with st.expander("👉 ดูห้องที่ส่งผล"): st.write(", ".join(submitted_rooms) if submitted_rooms else "-")
-                with c_exp3:
+                with col3:
+                    st.metric("❌ ยังไม่ส่งผลตรวจ", f"{len(missing_rooms)} ห้อง")
                     with st.expander("👉 ดูห้องที่ยังไม่ส่ง"): st.write(", ".join(missing_rooms) if missing_rooms else "-")
                     
                 st.markdown("---")
@@ -509,26 +517,33 @@ with tab2:
                 total_checked = len(checked_df)
                 missing_students_count = SCHOOL_TOTAL_STUDENTS - total_checked
                 
-                c1, c2, c3 = st.columns(3)
-                c1.metric("👥 นักเรียนสถานะปัจจุบัน", f"{SCHOOL_TOTAL_STUDENTS} คน")
-                c2.metric("👦 ชาย", f"{SCHOOL_TOTAL_MALE} คน")
-                c3.metric("👧 หญิง", f"{SCHOOL_TOTAL_FEMALE} คน")
+                df_reg_male = registry_students_df[registry_students_df['เพศ'] == 'ชาย'] if not registry_students_df.empty else pd.DataFrame()
+                df_reg_female = registry_students_df[registry_students_df['เพศ'] == 'หญิง'] if not registry_students_df.empty else pd.DataFrame()
+                
+                c1, c2, c3 = st.columns(3, gap="large")
+                with c1:
+                    st.metric("👥 นักเรียนสถานะปัจจุบัน", f"{SCHOOL_TOTAL_STUDENTS} คน")
+                    with st.expander("👉 ดูรายชื่อทั้งหมด"): render_student_table(registry_students_df)
+                with c2:
+                    st.metric("👦 ชาย", f"{SCHOOL_TOTAL_MALE} คน")
+                    with st.expander("👉 ดูรายชื่อ (ชาย)"): render_student_table(df_reg_male)
+                with c3:
+                    st.metric("👧 หญิง", f"{SCHOOL_TOTAL_FEMALE} คน")
+                    with st.expander("👉 ดูรายชื่อ (หญิง)"): render_student_table(df_reg_female)
                 
                 st.markdown("##### 📌 ผลการตรวจระเบียบรายสัปดาห์")
-                sc1, sc2, sc3, sc4 = st.columns(4)
-                sc1.metric("🟢 ผ่านระเบียบ", f"{len(df_pass)} คน")
-                sc2.metric("🔴 ไม่ผ่านระเบียบ", f"{len(df_fail)} คน")
-                sc3.metric("⚫ ลาออก", f"{len(df_resigned)} คน")
-                sc4.metric("⚪ ขาด/ยังไม่ได้ประเมิน", f"{missing_students_count} คน")
-                
-                sc_exp1, sc_exp2, sc_exp3, sc_exp4 = st.columns(4)
-                with sc_exp1:
+                sc1, sc2, sc3, sc4 = st.columns(4, gap="medium")
+                with sc1:
+                    st.metric("🟢 ผ่านระเบียบ", f"{len(df_pass)} คน")
                     with st.expander("👉 ดูรายชื่อ"): render_student_table(df_pass)
-                with sc_exp2:
+                with sc2:
+                    st.metric("🔴 ไม่ผ่านระเบียบ", f"{len(df_fail)} คน")
                     with st.expander("👉 ดูรายชื่อ"): render_student_table(df_fail)
-                with sc_exp3:
+                with sc3:
+                    st.metric("⚫ ลาออก", f"{len(df_resigned)} คน")
                     with st.expander("👉 ดูรายชื่อ"): render_student_table(df_resigned)
-                with sc_exp4:
+                with sc4:
+                    st.metric("⚪ ขาด/ยังไม่ได้ประเมิน", f"{missing_students_count} คน")
                     with st.expander("👉 ดูรายชื่อ"): render_student_table(df_missing)
 
         else:
