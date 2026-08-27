@@ -5,6 +5,9 @@ from datetime import datetime
 from io import StringIO
 from streamlit_gsheets import GSheetsConnection
 
+# 📌 เปลี่ยนมาใช้แค่ "รหัส ID" ของแผ่นงานแทนลิงก์ยาวๆ ป้องกันระบบหลงทางค่ะ!
+SHEET_ID = "1GfNCVEsKhSVq6QAXfnkMWHh_lMxsK5KFAeoUcVJhVPY"
+
 # 1. ตั้งค่าหน้าเว็บ
 st.set_page_config(page_title="ระบบติดตามวินัยนักเรียน", page_icon="📊", layout="wide")
 
@@ -63,17 +66,19 @@ def sort_rooms(room_str):
         pass
     return 9999
 
-# 4. โหลดข้อมูลเดิมจาก Google Sheets (ดึงจาก Secrets อัตโนมัติ)
+# 4. โหลดข้อมูลเดิมจาก Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 try:
-    existing_df = conn.read(worksheet="Database")
+    # 📌 เจมี่เปิดระบบโชว์ Error ออกมาให้เห็นเลยค่ะ ถ้าแอบพังเราจะได้รู้ทันที
+    existing_df = conn.read(spreadsheet=SHEET_ID, worksheet="Database")
     if not existing_df.empty and 'รหัสนักเรียน' in existing_df.columns:
         existing_df = existing_df.dropna(subset=['รหัสนักเรียน'])
         existing_df['รหัสนักเรียน'] = existing_df['รหัสนักเรียน'].astype(str).str.replace(r'\.0$', '', regex=True)
         existing_df['ลำดับ'] = existing_df['ลำดับ'].astype(int, errors='ignore')
     else:
         existing_df = pd.DataFrame()
-except Exception:
+except Exception as e:
+    st.error(f"⚠️ ตรวจพบปัญหาการเชื่อมต่อฐานข้อมูล (โหลดข้อมูล): {e}")
     existing_df = pd.DataFrame()
 
 # 5. ประมวลผลและสร้างตาราง
@@ -213,13 +218,12 @@ if uploaded_files:
             if st.button("💾 บันทึกข้อมูลทั้งหมดลง Google Sheets", type="primary", use_container_width=True):
                 with st.spinner("⏳ เจมี่กำลังวิ่งเอาข้อมูลไปเก็บที่ Google Sheets ให้เจ้านายค่ะ..."):
                     try:
-                        # 📌 ใช้คำสั่งแบบมาตรฐานที่ดึงค่าจาก Secrets โดยตรง ปลอดภัย 100% ค่ะ
-                        conn.clear(worksheet="Database")
-                        conn.update(worksheet="Database", data=final_df_to_save)
+                        # 📌 เจาะจงไปที่ ID นี้เท่านั้น ไม่มีหลงทางแน่นอน!
+                        conn.update(spreadsheet=SHEET_ID, worksheet="Database", data=final_df_to_save)
                         st.success("🎉 เซฟลงฐานข้อมูลสำเร็จเรียบร้อยแล้วค่ะเจ้านาย! (สามารถปิดหน้าต่างหรือกดกากบาทลบไฟล์ที่อัปโหลดออกได้เลยค่ะ)")
                         st.balloons()
                     except Exception as e:
-                        st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก: {e}")
+                        st.error(f"❌ เกิดข้อผิดพลาดในการบันทึกแบบละเอียด: {e}")
 
 elif not existing_df.empty:
     st.info("📊 นี่คือข้อมูลล่าสุดจากฐานข้อมูล Google Sheets ของเราค่ะ")
